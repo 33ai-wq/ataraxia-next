@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-inter: 'Inter', system-ui, sans-serif;
+  }
+  
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply bg-sand-50 text-sand-900;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white/80 backdrop-blur-sm rounded-2xl border border-sand-200 shadow-sm hover:shadow-md transition-shadow duration-300;
+  }
+  
+  .btn-primary {
+    @apply px-6 py-3 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+  }
+  
+  .btn-secondary {
+    @apply px-6 py-3 bg-sand-100 text-sand-700 rounded-xl font-medium hover:bg-sand-200 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-sand-400 focus:ring-offset-2;
+  }
+  
+  .input-field {
+    @apply w-full px-4 py-3 bg-white/50 border border-sand-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  .animate-breathe-in {
+    animation: breatheIn 4s ease-in-out infinite;
+  }
+  
+  .animate-breathe-out {
+    animation: breatheOut 4s ease-in-out infinite;
+  }
+  
+  .animate-ripple {
+    animation: ripple 2s ease-out infinite;
+  }
+  
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-sand-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-sand-300 rounded-full hover:bg-sand-400;
+}
+
+/* Focus visible for accessibility */
+:focus-visible {
+  @apply outline-none ring-2 ring-primary-500 ring-offset-2 ring-offset-white;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
