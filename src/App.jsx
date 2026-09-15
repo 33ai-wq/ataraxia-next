@@ -21,6 +21,14 @@ const CONFIG = {
     usdcDecimals: 6,
     treasuryAddress: 'GhFbGgNxERN6pQ7boSFLFJuPwXJuvJ8Tx7EgoJ9LV2Aw',
     explorer: 'https://solscan.io/tx/'
+  },
+  hedera: {
+    name: 'Hedera',
+    network: 'testnet',
+    rpc: 'https://testnet.hashio.io/api',
+    mirrorNode: 'https://testnet.mirrornode.hedera.com',
+    treasuryAccountId: '0.0.4865075',
+    explorer: 'https://hashscan.io/testnet/tx/'
   }
 };
 

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { SolanaAdapter } from '@reown/appkit-adapter-solana';
-import { base, mainnet, solana } from '@reown/appkit/networks';
+import { DAppConnector } from '@hashgraph/hedera-wallet-connect';
+import { base, mainnet, solana, hederaTestnet } from '@reown/appkit/networks';
 import QRCode from 'qrcode';
 
 // Reown project ID for WalletConnect
@@ -38,14 +39,14 @@ const wagmiAdapter = new WagmiAdapter({
 
 const solanaAdapter = new SolanaAdapter();
 
-// Single AppKit instance holding both namespaces (documented keys only).
+// Single AppKit instance holding all namespaces (documented keys only).
 let appKitModal = null;
 
 if (typeof window !== 'undefined' && !appKitModal) {
   try {
     appKitModal = createAppKit({
       adapters: [wagmiAdapter, solanaAdapter],
-      networks: [base, mainnet, solana],
+      networks: [base, mainnet, solana, hederaTestnet],
       defaultNetwork: base,
       projectId: REOWN_PROJECT_ID,
       metadata,
@@ -103,7 +104,8 @@ const FALLBACK_WC = {
 };
 
 async function fetchWcWallets(chain) {
-  const chains = chain === 'base' ? 'eip155:8453' : SOLANA_CHAIN;
+  if (chain === 'hedera') return [];
+  const chains = chain === 'base' ? 'eip155:8453' : chain === 'solana' ? SOLANA_CHAIN : 'hedera:testnet';
   const r = await fetch(
     `https://explorer-api.walletconnect.com/v3/wallets?projectId=${REOWN_PROJECT_ID}&version=2&chains=${encodeURIComponent(chains)}&entries=12&page=1`
   );
@@ -134,7 +136,10 @@ function startPairing(chain) {
   try { provider.disconnect?.().catch(() => {}); } catch {}
   const namespaces = chain === 'base'
     ? { eip155: { methods: ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData', 'eth_signTypedData_v4', 'wallet_switchEthereumChain'], chains: ['eip155:8453', 'eip155:1'], events: ['chainChanged', 'accountsChanged'] } }
-    : { solana: { methods: ['sol_signMessage', 'solana_signMessage', 'sol_signTransaction', 'solana_signTransaction', 'solana_signAndSendTransaction'], chains: [SOLANA_CHAIN], events: [] } };
+    : chain === 'solana'
+      ? { solana: { methods: ['sol_signMessage', 'solana_signMessage', 'sol_signTransaction', 'solana_signTransaction', 'solana_signAndSendTransaction'], chains: [SOLANA_CHAIN], events: [] } }
+      : undefined;
+  if (!namespaces) return Promise.reject(new Error('Unsupported chain for WalletConnect'));
   return new Promise((resolve, reject) => {
     const to = setTimeout(() => { cleanup(); reject(new Error('Timeout membuat tautan — coba lagi')); }, 30000);
     const onUri = (u) => { clearTimeout(to); cleanup(); resolve(u); };
