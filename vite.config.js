@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
     rollupOptions: {
-      external: ['@hashgraph/hedera-wallet-connect'],
+      external: [],
     },
   },
 })

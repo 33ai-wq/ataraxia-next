@@ -62,6 +62,12 @@ function App() {
     showToast('Wallet disconnected — see you in stillness', 'info');
   }, [resetFlow, showToast]);
 
+  const handleNav = useCallback((id) => {
+    if (id === 'dashboard') { setPhase(wallet ? 'sanctuary' : 'landing'); return; }
+    if (id === 'guide') { setPhase('guide'); return; }
+    showToast('Fitur ini masih dalam pengembangan — segera hadir ✨', 'info');
+  }, [wallet, showToast]);
+
   // ---- wallet connect fixes ----
   const connectMetaMask = async (id = 'metamask') => {
     try {
@@ -238,7 +244,7 @@ function App() {
         </div>
       )}
 
-      <Header wallet={wallet} onDisconnect={handleDisconnect} />
+      <Header wallet={wallet} onDisconnect={handleDisconnect} onNav={handleNav} active={phase === 'sanctuary' ? 'dashboard' : phase} />
 
       {renderMain()}
 

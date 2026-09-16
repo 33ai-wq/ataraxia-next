@@ -3,7 +3,7 @@ import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { SolanaAdapter } from '@reown/appkit-adapter-solana';
 import { DAppConnector } from '@hashgraph/hedera-wallet-connect';
-import { base, mainnet, solana, hederaTestnet } from '@reown/appkit/networks';
+import { base, mainnet, solana } from '@reown/appkit/networks';
 import QRCode from 'qrcode';
 
 // Reown project ID for WalletConnect
@@ -46,7 +46,7 @@ if (typeof window !== 'undefined' && !appKitModal) {
   try {
     appKitModal = createAppKit({
       adapters: [wagmiAdapter, solanaAdapter],
-      networks: [base, mainnet, solana, hederaTestnet],
+      networks: [base, mainnet, solana],
       defaultNetwork: base,
       projectId: REOWN_PROJECT_ID,
       metadata,
@@ -361,6 +361,84 @@ export default function WalletModal({ isOpen, onClose, onConnectEVM, onConnectSo
     }
   };
 
+  const handleHedera = async (id) => {
+    setIsConnecting(id);
+    try {
+      if (id === 'walletconnect') {
+        await openHederaWc();
+        return;
+      }
+      if (id === 'hashpack') {
+        await connectHashPack();
+        return;
+      }
+    } catch (e) {
+      console.error('[Ataraxia] Hedera connect error:', e);
+      showToast?.(e.message || 'Connection failed', 'error');
+    } finally {
+      setIsConnecting(null);
+    }
+  };
+
+  // Hedera WalletConnect via DAppConnector (separate from AppKit)
+  let hederaConnector = null;
+  if (typeof window !== 'undefined' && !hederaConnector) {
+    try {
+      hederaConnector = new DAppConnector({
+        network: 'testnet',
+        projectId: REOWN_PROJECT_ID,
+        metadata: {
+          name: 'Ataraxia',
+          description: 'A wallet-gated sanctuary for calm.',
+          url: window.location.origin,
+          icons: ['/logo.png'],
+        },
+      });
+    } catch (e) {
+      console.error('[Ataraxia] Hedera DAppConnector init failed:', e);
+    }
+  }
+
+  async function openHederaWc() {
+    if (!hederaConnector) {
+      throw new Error('Hedera WalletConnect not available');
+    }
+    try {
+      await hederaConnector.openModal();
+      // DAppConnector fires events, subscribe to account changes
+      hederaConnector.on('accountChanged', (account) => {
+        if (account) {
+          onAppKitAccount({ address: account, chain: 'hedera', type: 'walletconnect' });
+        }
+      });
+    } catch (e) {
+      console.error('[Ataraxia] Hedera WC open failed:', e);
+      throw e;
+    }
+  }
+
+  async function connectHashPack() {
+    // HashPack injects window.hashpack or uses standard EIP-6963
+    if (typeof window === 'undefined') throw new Error('No window');
+    
+    // Try HashPack extension
+    const provider = window.hashpack || window.ethereum?.isHashpack ? window.ethereum : null;
+    if (!provider) {
+      throw new Error('HashPack not installed. Install from hashpack.app or use WalletConnect.');
+    }
+    
+    try {
+      const accounts = await provider.request({ method: 'eth_requestAccounts' });
+      if (accounts?.length) {
+        // HashPack on Hedera uses EIP-6963, address is EVM format
+        onAppKitAccount({ address: accounts[0], chain: 'hedera', type: 'hashpack' });
+      }
+    } catch (e) {
+      console.error('[Ataraxia] HashPack connect error:', e);
+      throw e;
+    }
+  }
+
   const renderWalletBtn = (w, onClick, connected, connecting) => (
     <button
       key={w.id}
@@ -486,7 +564,16 @@ export default function WalletModal({ isOpen, onClose, onConnectEVM, onConnectSo
             const cls = 'flex items-center gap-3 p-2.5 rounded-xl border bg-bg border-border text-center transition-all duration-200 hover:-translate-y-0.5 ' +
               (href ? 'hover:border-accent/50 hover:shadow-[0_8px_24px_rgba(0,212,170,0.15)]' : 'opacity-60');
             return href ? (
-              <a key={w.name} href={href} target="_blank" rel="noopener noreferrer" className={cls}>{inner}</a>
+              <a
+                key={w.name}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cls}
+                onClick={() => showToast?.('Kamu akan diarahkan ke app wallet — lanjut pakai Ataraxia dari situ ya, itu normal 🙂', 'info')}
+              >
+                {inner}
+              </a>
             ) : (
               <div key={w.name} className={cls}>{inner}</div>
             );
@@ -567,6 +654,47 @@ export default function WalletModal({ isOpen, onClose, onConnectEVM, onConnectSo
                 isConnecting === w.id,
               ))}
               {wcBtn(handleSolana, isConnecting === 'walletconnect', '#9945FF')}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-border/50" />
+            <span className="text-[10px] tracking-widest uppercase text-fg-muted/60">or</span>
+            <div className="flex-1 h-px bg-border/50" />
+          </div>
+
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-2 h-2 rounded-full bg-[#8b00ff] animate-pulse" />
+              <h3 className="font-heading text-xs font-semibold tracking-widest uppercase text-fg-muted">Hedera Testnet</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => handleHedera('hashpack')}
+                disabled={isConnecting === 'hashpack'}
+                className="group relative flex flex-col items-center gap-2 p-4 rounded-2xl border text-center transition-all duration-200
+                  bg-bg border-border hover:border-[#8b00ff]/50 hover:bg-bg-elevated hover:shadow-[0_8px_24px_rgba(139,0,255,0.15)] hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-wait p-0"
+              >
+                <WalletIcon src={WALLET_ICONS.walletconnect} color="#8b00ff" />
+                <div>
+                  <div className="font-semibold text-sm leading-tight">HashPack</div>
+                  <div className="text-[11px] text-fg-muted leading-tight">Browser Extension / Mobile</div>
+                </div>
+                {isConnecting === 'hashpack' && <span className="absolute top-2 right-2 w-4 h-4 border-2 border-[#8b00ff] border-t-transparent rounded-full animate-spin" />}
+              </button>
+              <button
+                onClick={() => handleHedera('walletconnect')}
+                disabled={isConnecting === 'walletconnect'}
+                className="group relative flex flex-col items-center gap-2 p-4 rounded-2xl border text-center transition-all duration-200
+                  bg-bg border-border hover:border-[#8b00ff]/50 hover:bg-bg-elevated hover:shadow-[0_8px_24px_rgba(139,0,255,0.15)] hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-wait p-0"
+              >
+                <WalletIcon src={WALLET_ICONS.walletconnect} color="#8b00ff" />
+                <div>
+                  <div className="font-semibold text-sm leading-tight">WalletConnect</div>
+                  <div className="text-[11px] text-fg-muted leading-tight">Scan QR / Mobile</div>
+                </div>
+                {isConnecting === 'walletconnect' && <span className="absolute top-2 right-2 w-4 h-4 border-2 border-[#8b00ff] border-t-transparent rounded-full animate-spin" />}
+              </button>
             </div>
           </div>
         </div>
