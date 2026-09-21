@@ -35,6 +35,7 @@ const CONFIG = {
 function App() {
   const [phase, setPhase] = useState('landing'); // landing | sanctuary | guide
   const [wallet, setWallet] = useState(null); // { type, address, chain }
+  const [authed, setAuthed] = useState(false);
   const [toast, setToast] = useState({ message: '', type: 'info', show: false });
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
 
@@ -59,8 +60,48 @@ function App() {
     try { await window.phantom?.solana?.disconnect?.(); } catch {}
     try { await window.solana?.disconnect?.(); } catch {}
     resetFlow();
+    setAuthed(false);
     showToast('Wallet disconnected — see you in stillness', 'info');
   }, [resetFlow, showToast]);
+
+  // ---- SIWE-style auth: nonce → signMessage → /api/verify → session cookie ----
+  // Hanya untuk EVM (Base Wallet / MetaMask / Coinbase extension). Solana pakai
+  // skema verify terpisah (belum dalam lingkup addendum) — tetap address-capture.
+  const authAfterConnect = useCallback(async (w, opts = {}) => {
+    const addr = (w?.address || '').trim();
+    const isEvm = /^0x/i.test(addr);
+    if (!addr || !isEvm) return false;
+    try {
+      const nonceRes = await fetch(`/api/nonce?address=${encodeURIComponent(addr)}`, { cache: 'no-store' });
+      if (!nonceRes.ok) throw new Error('nonce_failed');
+      const { nonce } = await nonceRes.json();
+      const message = `Sign in to Ataraxia\nNonce: ${nonce}`;
+      // personal_sign dari injected provider (window.ethereum). WalletConnect/wallet
+      // yang tak expose window.ethereum tak didukung di sini — biarkan sebagai best-effort.
+      const eth = window.ethereum;
+      if (!eth?.request) throw new Error('signature_unavailable');
+      const signature = await eth.request({ method: 'personal_sign', params: [message, addr] });
+      const ver = await fetch('/api/auth/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: addr, message, signature }),
+      });
+      if (!ver.ok) throw new Error('verify_failed');
+      setAuthed(true);
+      if (opts.notify !== false) showToast('Wallet verified — session authenticated ✓', 'success');
+      return true;
+    } catch (e) {
+      if (opts.notify !== false) {
+        showToast((e?.message === 'verify_failed'
+          ? 'Signature verification failed'
+          : e?.message === 'signature_unavailable'
+            ? 'Sign-in unavailable for this wallet — connected but not authenticated'
+            : 'Authentication skipped'), 'info');
+      }
+      setAuthed(false);
+      return false;
+    }
+  }, [showToast]);
 
   const handleNav = useCallback((id) => {
     if (id === 'dashboard') { setPhase(wallet ? 'sanctuary' : 'landing'); return; }
@@ -98,6 +139,7 @@ function App() {
       setIsWalletModalOpen(false);
       setPhase('sanctuary');
       showToast(`Connected: ${formatAddress(addr)}`, 'success');
+      authAfterConnect({ type: id, address: addr, chain: 'base' });
     } catch (e) {
       showToast(e.message || 'Connection failed', 'error');
       throw e;
@@ -155,7 +197,8 @@ function App() {
     setIsWalletModalOpen(false);
     setPhase('sanctuary');
     showToast(`Connected: ${formatAddress(address)}`, 'success');
-  }, [showToast]);
+    authAfterConnect({ type: type || 'walletconnect', address, chain: chain || 'base' });
+  }, [showToast, authAfterConnect]);
 
   // listen to injected EVM account/chain changes to stay in sync
   useEffect(() => {
