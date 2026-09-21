@@ -1,0 +1,16 @@
+[Unit]
+Description=Ataraxia wallet-auth (SIWE) backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/ataraxia-next/server
+ExecStart=/usr/bin/node server.mjs
+Environment=ATARAXIA_PORT=3110
+Environment=ATARAXIA_RPC=https://mainnet.base.org
+User=ubuntu
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
