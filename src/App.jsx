@@ -3,6 +3,7 @@ import Sanctuary from './Sanctuary';
 import WalletModal, { disconnectAppKit } from './components/WalletModal';
 import Guide from './Guide';
 import Header from './components/Header';
+import ProfilePanel from './components/ProfilePanel';
 
 const CONFIG = {
   base: {
@@ -106,6 +107,7 @@ function App() {
   const handleNav = useCallback((id) => {
     if (id === 'dashboard') { setPhase(wallet ? 'sanctuary' : 'landing'); return; }
     if (id === 'guide') { setPhase('guide'); return; }
+    if (id === 'profile') { setPhase('profile'); return; }
     showToast('Fitur ini masih dalam pengembangan — segera hadir ✨', 'info');
   }, [wallet, showToast]);
 
@@ -220,6 +222,9 @@ function App() {
     }
     if (phase === 'sanctuary') {
       return <Sanctuary wallet={wallet} onExit={resetFlow} onDisconnect={handleDisconnect} onGuide={() => setPhase('guide')} showToast={showToast} />;
+    }
+    if (phase === 'profile') {
+      return <ProfilePanel wallet={wallet} onDisconnect={handleDisconnect} onConnect={() => setIsWalletModalOpen(true)} showToast={showToast} />;
     }
     // landing
     return (

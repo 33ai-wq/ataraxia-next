@@ -2,22 +2,16 @@ import { useState } from 'react';
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: '◧',  en: 'Dashboard' },
-  { id: 'guide',     label: 'Guide',     icon: '◨',  en: 'Guide' },
   { id: 'profile',   label: 'Profile',   icon: '◩',  en: 'Profile' },
-  { id: 'levels',    label: 'Levels',    icon: '⬢',  en: 'Levels' },
-  { id: 'reward',    label: 'Reward',    icon: '⬣',  en: 'Reward' },
 ];
 
 // small inline icons using unicode that matches existing style; no extra deps
 const ICONS = {
   dashboard: '⌂',
-  guide: '📖',
   profile: '👤',
-  levels: '🏆',
-  reward: '🎁',
 };
 
-export default function Header({ active, wallet, xp, levelName, levelIcon, onNav }) {
+export default function Header({ active, wallet, onNav }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const addr = wallet?.address ? wallet.address.slice(0,6)+'...'+wallet.address.slice(-4) : null;
 
@@ -49,14 +43,6 @@ export default function Header({ active, wallet, xp, levelName, levelIcon, onNav
 
         {/* right */}
         <div className="flex items-center gap-2">
-          {/* xp pill desktop */}
-          {typeof xp === 'number' && levelName && (
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded-full" title={`${xp} XP`}>
-              <span>{levelIcon}</span>
-              <span className="text-xs font-semibold">{levelName}</span>
-              <span className="text-[11px] text-fg-muted font-mono">{xp} XP</span>
-            </div>
-          )}
           {addr && <span className="hidden md:inline text-xs font-mono text-fg-muted px-2 py-1 bg-card border border-border rounded-full">{addr}</span>}
           <span className={`hidden sm:inline-flex w-2.5 h-2.5 rounded-full ${wallet ? 'bg-accent shadow-[0_0_8px_var(--color-accent-glow)]' : 'bg-fg-muted/40'}`} title={wallet ? 'Connected' : 'Not connected'} />
 

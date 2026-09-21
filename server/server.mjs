@@ -117,19 +117,7 @@ app.get('/api/session', (req, res) => {
   return res.json({ authed: true, address: s.address });
 });
 
-// 4) session-gated 0.1 USDC tx (STUB — belum gerakkan dana nyata)
-app.post('/api/tx', (req, res) => {
-  const s = authSession(req);
-  if (!s) return res.status(401).json({ error: 'unauthorized', message: 'Valid session required' });
-  return res.json({
-    authorized: true,
-    address: s.address,
-    amountUsdc: 0.1,
-    note: 'Session valid — tx allowed. Real funds movement pending mechanism confirmation.',
-  });
-});
-
-// 5) signout
+// 4) signout
 app.post('/api/logout', (_req, res) => {
   res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
   res.json({ ok: true });

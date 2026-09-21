@@ -32,7 +32,7 @@ export default function Guide({ wallet, onBack, onEnter, showToast }) {
         <p className="text-4xl mb-3">📖</p>
         <h2 className="font-heading text-3xl md:text-4xl font-bold tracking-tight mb-3">How to Play</h2>
         <p className="text-fg-muted max-w-xl mx-auto">
-          Ataraxia is a calm game: breathe, blend sounds, draw in sand, and level up your stillness. Free, private — all progress stays on your device.
+          Ataraxia is a calm space: breathe, blend sounds, draw in sand. Free, private — all progress stays on your device.
         </p>
       </div>
 
@@ -54,7 +54,7 @@ export default function Guide({ wallet, onBack, onEnter, showToast }) {
         </div>
       </Section>
 
-      <Section icon="🫁" title="2. Breathing Guide" tag="+10 XP / cycle">
+      <Section icon="🫁" title="2. Breathing Guide" tag="Free">
         <div className="space-y-4">
           <Step n="1" title="Follow the circle">
             <p>Circle <b className="text-fg">expands = inhale</b>, <b className="text-fg">shrinks = exhale</b>, <b className="text-fg">still = hold</b>. Labels Inhale / Hold / Exhale light up.</p>
@@ -88,27 +88,6 @@ export default function Guide({ wallet, onBack, onEnter, showToast }) {
             <p>Every <b className="text-fg">50 grains = +2 XP</b>. Scatter 1,000 to unlock <b className="text-fg">🎨 Zen Artist</b>.</p>
           </Step>
         </div>
-      </Section>
-
-      <Section icon="🌱" title="5. Journey of Stillness" tag="The game">
-        <div className="space-y-3">
-          <p><b className="text-fg">Levels:</b> 🌱 Seed of Calm (0) → 🌿 Sprout (100) → 🌳 Still Grove (250) → 🏞️ Mirror Lake (500) → ⛰️ Silent Mountain (1000) → 🌊 Boundless Ocean (2000 XP).</p>
-          <p><b className="text-fg">Streak:</b> open Sanctuary daily to keep a 🔥 streak. Two days in a row unlocks <b className="text-fg">🌅 Returning Soul</b>.</p>
-          <p><b className="text-fg">Intention:</b> write one intention for today (e.g. “breathe before replying”) then hit Set 🧭 — unlocks <b className="text-fg">🧭 Set Sail</b>.</p>
-          <p><b className="text-fg">Achievements:</b> 8 core only — 🫁 First Breath, 🔥 Steady Rhythm (10), 💎 Deep Diver (50), ⏳ Still Water (5min), 🎨 Zen Artist (1000 grains), 🎧 Sound Weaver (2 sounds), 🌅 Returning Soul, 🧭 Set Sail. See Levels page — locked dimmed, calm over grind.</p>
-          <p className="text-xs border-t border-border/50 pt-3">💾 All progress is in localStorage on your device. Change browser / clear data = restart at Seed. No account, no server, no tracking.</p>
-        </div>
-      </Section>
-
-      <Section icon="👤" title="6. Account & Safety" tag="Profile">
-        <div className="space-y-3">
-          <p>Tap your <b className="text-fg">address chip</b> in the header or open <b className="text-fg">Profile</b> to see full address, network, live balances (ETH/USDC or SOL/USDC), upload your avatar, and <b className="text-fg">🔌 Disconnect</b>.</p>
-          <p>Disconnecting clears the WalletConnect session and returns you to Dashboard. Journey progress stays safe on device.</p>
-        </div>
-      </Section>
-
-      <Section icon="🎁" title="7. Rewards" tag="1000 XP = $0.10">
-        <p>Every 1000 XP = $0.10 USDC claimable (see Reward page). Earn XP by breathing, drawing, listening. Claims are queued locally and paid from treasury during beta — no gas needed.</p>
       </Section>
 
       <div className="text-center py-4">
