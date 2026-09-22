@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { watchAccount } from '@wagmi/core';
 import { wagmiConfig } from '../components/WalletModal';
 import {
@@ -28,6 +28,20 @@ function Cinema({ wallet, onBack, showToast }) {
   const [error, setError] = useState({ videoId: null, message: '' });
   const [player, setPlayer] = useState(null);
   const [lastTx, setLastTx] = useState(null);
+  const previewRefs = useRef({});
+
+  // Free previews never autoload: a poster costs ~50 kB, a 5 s clip costs ~5.7 MB.
+  // One preview plays at a time, on an explicit tap.
+  const togglePreview = useCallback((id) => {
+    Object.entries(previewRefs.current).forEach(([key, el]) => {
+      if (!el) return;
+      if (key === id) {
+        if (el.paused) { el.play?.().catch(() => {}); } else { el.pause?.(); }
+      } else if (!el.paused) {
+        el.pause?.();
+      }
+    });
+  }, []);
 
   const refreshAccess = useCallback(async () => {
     const [s, a] = await Promise.all([getSession(), getAccess()]);
@@ -199,26 +213,29 @@ function Cinema({ wallet, onBack, showToast }) {
                 ) : (
                   <>
                     <video
+                      ref={(el) => { previewRefs.current[item.id] = el; }}
                       src={item.preview}
                       poster={item.poster}
-                      className="w-full h-full object-cover opacity-70"
+                      className="w-full h-full object-cover"
                       muted
                       loop
-                      autoPlay
                       playsInline
-                      preload="metadata"
+                      preload="none"
                     />
-                    <button
-                      onClick={() => openPlayer(item)}
-                      className="absolute inset-0 bg-black/45 hover:bg-black/30 transition-colors flex items-center justify-center"
-                      aria-label={`Preview ${item.title}`}
-                    >
-                      <span className="text-3xl">🔒</span>
-                    </button>
+                    <div className="absolute inset-0 bg-black/45 hover:bg-black/30 transition-colors flex flex-col items-center justify-center gap-2">
+                      <button
+                        onClick={() => togglePreview(item.id)}
+                        className="w-12 h-12 rounded-full bg-black/60 border border-white/25 text-lg text-white hover:bg-black/80 transition-colors"
+                        aria-label={`Play the free 5s preview of ${item.title}`}
+                      >
+                        ▶
+                      </button>
+                      <span className="text-[10px] uppercase tracking-widest text-white/70">free {Math.round(item.previewSec)}s preview</span>
+                    </div>
                   </>
                 )}
                 <span className="absolute top-2 left-2 text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-full bg-black/70 text-fg-muted">
-                  {isUnlocked ? 'unlocked' : `preview ${Math.round(item.previewSec)}s`}
+                  {isUnlocked ? 'unlocked' : `${Math.round(item.durationSec)}s full`}
                 </span>
               </div>
               <div className="p-4 flex-1 flex flex-col">
