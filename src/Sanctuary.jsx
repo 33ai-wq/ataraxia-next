@@ -11,7 +11,6 @@ function Sanctuary({ wallet }) {
   const [breathPhase, setBreathPhase] = useState(0);
   const [activeLabel, setActiveLabel] = useState('Inhale');
   const [isBreathing, setIsBreathing] = useState(true);
-  const [guideOpen, setGuideOpen] = useState(false);
 
   const breathingCoreRef = useRef(null);
   const breathTimeoutRef = useRef(null);

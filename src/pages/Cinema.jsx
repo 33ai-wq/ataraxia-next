@@ -45,7 +45,7 @@ function Cinema({ wallet, onBack, showToast }) {
         setCfg(c);
         setItems(Array.isArray(cat.items) ? cat.items : []);
         await refreshAccess();
-      } catch (e) {
+      } catch {
         if (alive) showToast('Could not reach the Ataraxia service', 'error');
       }
     })();
@@ -88,12 +88,10 @@ function Cinema({ wallet, onBack, showToast }) {
     if (!cfg) return;
     try {
       setError({ videoId: null, message: '' });
-      let addr = effectiveAddress;
       if (!sessionMatches) {
         await signIn();
         const s = await getSession();
         if (!s.authed) throw new Error('Sign-in required before paying');
-        addr = s.address;
       }
       setBusy({ videoId: item.id, phase: 'invoicing' });
       const inv = await openInvoice(item.id);
@@ -130,7 +128,7 @@ function Cinema({ wallet, onBack, showToast }) {
     } finally {
       setBusy({ videoId: null, phase: null });
     }
-  }, [cfg, effectiveAddress, refreshAccess, sessionMatches, showToast, signIn]);
+  }, [cfg, refreshAccess, sessionMatches, showToast, signIn]);
 
   const openPlayer = useCallback((item) => {
     if (!unlocked.has(item.id)) {
