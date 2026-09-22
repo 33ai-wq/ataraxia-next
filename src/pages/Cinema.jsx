@@ -79,7 +79,7 @@ function Cinema({ wallet, onBack, showToast }) {
     try {
       setError({ videoId: null, message: '' });
       setBusy({ videoId: null, phase: 'signing' });
-      const acc = await adoptInjectedAccount();
+      const acc = await adoptInjectedAccount(effectiveAddress);
       await ensureBaseChain();
       const { nonce } = await getNonce(acc.address);
       if (!nonce) throw new Error('No sign-in nonce — try again');
@@ -96,7 +96,7 @@ function Cinema({ wallet, onBack, showToast }) {
     } finally {
       setBusy({ videoId: null, phase: null });
     }
-  }, [refreshAccess, showToast]);
+  }, [effectiveAddress, refreshAccess, showToast]);
 
   const unlock = useCallback(async (item) => {
     if (!cfg) return;

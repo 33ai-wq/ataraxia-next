@@ -7,7 +7,7 @@ import { Attribution } from 'ox/erc8021';
 import QRCode from 'qrcode';
 
 // Reown project ID for WalletConnect
-const REOWN_PROJECT_ID = '886f8719c01b034b65dad40b625434a8';
+const REOWN_PROJECT_ID = (import.meta.env?.VITE_REOWN_PROJECT_ID || '886f8719c01b034b65dad40b625434a8').trim();
 
 // Base Builder Code (Base.dev) — ERC-8021 attribution. Set at build time with
 // VITE_BUILDER_CODE; when empty the app simply sends unattributed transactions.
@@ -145,14 +145,20 @@ async function fetchWcWallets(chain) {
 function deepLink(w, uri) {
   const b = (w.universal || w.native || '').replace(/\/$/, '');
   if (!b || !uri) return null;
-  if (/[\?&]uri=/.test(b)) return b + encodeURIComponent(uri);
+  if (/[?&]uri=/.test(b)) return b + encodeURIComponent(uri);
   return b + '/wc?uri=' + encodeURIComponent(uri);
 }
 
-function startPairing(chain) {
-  const provider = appKitModal?.getUniversalProvider?.();
-  if (!provider) return Promise.reject(new Error('WalletConnect belum siap — coba wallet browser langsung'));
-  try { provider.disconnect?.().catch(() => {}); } catch {}
+// AppKit 1.8 exposes getUniversalProvider() as an ASYNC method returning the
+// WalletConnect UniversalProvider. Forgetting the await yields a Promise, and
+// `promise.on(...)` throws "on is not a function" — which is exactly how the QR
+// pairing used to die. Await it, then subscribe to 'display_uri'.
+async function startPairing(chain) {
+  const provider = await appKitModal?.getUniversalProvider?.();
+  if (!provider || typeof provider.on !== 'function') {
+    throw new Error('WalletConnect belum siap — pakai wallet di browser (MetaMask/Coinbase) atau Base Account');
+  }
+  try { provider.disconnect?.().catch?.(() => {}); } catch {}
   const namespaces = chain === 'base'
     ? { eip155: { methods: ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData', 'eth_signTypedData_v4', 'wallet_switchEthereumChain'], chains: ['eip155:8453', 'eip155:1'], events: ['chainChanged', 'accountsChanged'] } }
     : { solana: { methods: ['sol_signMessage', 'solana_signMessage', 'sol_signTransaction', 'solana_signTransaction', 'solana_signAndSendTransaction'], chains: [SOLANA_CHAIN], events: [] } };
@@ -167,8 +173,36 @@ function startPairing(chain) {
   });
 }
 
+// Base Account (Coinbase Smart Wallet, CDP) — passkey login, no QR, no seed.
+// This is the wallet that works inside the Base App's in-app browser and is
+// sponsored by Base when the CDP project allows it.
+async function startBaseAccount() {
+  const { connect, getAccount } = await import('@wagmi/core');
+  const { baseAccount } = await import('wagmi/connectors');
+  // The passkey ceremony happens in Coinbase's own frame; give it room, but do
+  // not leave the button spinning forever if the user dismisses it.
+  const withTimeout = (p, ms, msg) =>
+    Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+  await withTimeout(
+    connect(wagmiConfig, { connector: baseAccount({ appName: 'Ataraxia' }) }),
+    90_000,
+    'Base Account timed out — approve the passkey prompt (or use MetaMask / WalletConnect)',
+  );
+  const acc = getAccount(wagmiConfig);
+  if (!acc.address) throw new Error('Base Account did not return an address');
+  return acc.address;
+}
+
 // Direct (injected) wallet detection
 const EVM_WALLETS = [
+  {
+    id: 'baseaccount',
+    name: 'Base Account',
+    subtitle: 'Passkey · CDP',
+    icon: WALLET_ICONS.coinbase,
+    color: '#0052FF',
+    detect: () => true, // passkey smart wallet: works in any browser, no extension
+  },
   {
     id: 'metamask',
     name: 'MetaMask',
@@ -350,6 +384,11 @@ export default function WalletModal({ isOpen, onClose, onConnectEVM, onConnectSo
     try {
       if (id === 'walletconnect') {
         await openWcPanel('base');
+        return;
+      }
+      if (id === 'baseaccount') {
+        const address = await startBaseAccount();
+        onAppKitAccount?.({ address, chain: 'base', type: 'baseaccount' });
         return;
       }
       await onConnectEVM(id);

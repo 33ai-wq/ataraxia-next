@@ -2,7 +2,7 @@
 // the AppKit-owned wagmi config (so Builder Code attribution applies and
 // smart-wallet / Base Account connectors work).
 import { getAccount, switchChain, signMessage, writeContract, waitForTransactionReceipt, connect } from '@wagmi/core';
-import { injected, baseAccount } from 'wagmi/connectors';
+import { injected } from 'wagmi/connectors';
 import { wagmiConfig } from '../components/WalletModal';
 
 export const BASE_CHAIN_ID = 8453;
@@ -35,29 +35,23 @@ export async function ensureBaseChain() {
  * The app can hold a wallet connection that AppKit/wagmi does not know about
  * (e.g. the raw window.ethereum path for MetaMask). Payments and SIWE must run
  * on the wagmi config, so adopt the injected provider first when needed.
+ *
+ * Fail FAST when there is nothing to adopt: Base Account / passkey is an
+ * explicit choice in the connect modal, never a silent 90s wait here.
  */
-export async function adoptInjectedAccount() {
+export async function adoptInjectedAccount(fallbackAddress = null) {
   const acc = getAccount(wagmiConfig);
   if (acc.address) return acc;
-  const errors = [];
   if (typeof window !== 'undefined' && window.ethereum) {
     try {
       await connect(wagmiConfig, { connector: injected() });
-    } catch (e) {
-      errors.push(e?.shortMessage || e?.message || String(e));
-    }
-  }
-  if (!getAccount(wagmiConfig).address) {
-    // Base App in-app browser / passkey Base Account
-    try {
-      await connect(wagmiConfig, { connector: baseAccount({ appName: 'Ataraxia' }) });
-    } catch (e) {
-      errors.push(e?.shortMessage || e?.message || String(e));
-    }
+    } catch { /* fall through to the explicit error below */ }
   }
   const next = getAccount(wagmiConfig);
   if (!next.address) {
-    throw new Error(errors[0] || 'No wallet connected — connect a Base wallet first');
+    throw new Error(fallbackAddress
+      ? 'This wallet is connected but not authorised for signing — reconnect with the Connect wallet button, then try again'
+      : 'Connect a wallet first (Connect wallet button at the top), then unlock');
   }
   return next;
 }
