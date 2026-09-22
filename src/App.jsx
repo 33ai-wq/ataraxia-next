@@ -139,7 +139,7 @@ function App() {
 
   const renderMain = () => {
     if (phase === 'guide') {
-      return <div className="flex-1 overflow-y-auto px-4 py-6"><Guide wallet={wallet} onBack={() => setPhase('home')} onEnter={() => requestWallet('breathe')} onCinema={() => setPhase('cinema')} showToast={showToast} /></div>;
+      return <main className="flex-1 overflow-y-auto px-4 py-6"><Guide wallet={wallet} onBack={() => setPhase('home')} onEnter={() => requestWallet('breathe')} onCinema={() => setPhase('cinema')} /></main>;
     }
     if (phase === 'breathe') {
       return <Sanctuary wallet={wallet} />;
