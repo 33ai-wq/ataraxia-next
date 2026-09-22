@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# backend runtime secrets/data (never commit)
+server/.env
+server/*.db
+server/*.db-wal
+server/*.db-shm
+server/unlocks.log
