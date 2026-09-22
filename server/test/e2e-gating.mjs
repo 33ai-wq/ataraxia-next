@@ -4,11 +4,14 @@
 // Run: node /home/ubuntu/ataraxia/server/test/e2e-gating.mjs
 import crypto from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 const BASE = process.env.E2E_BASE || 'https://ataraxia.xhagents.xyz';
 const SECRET = readFileSync('/home/ubuntu/.ataraxia_session_secret', 'utf8').trim();
-const DB_FILE = '/home/ubuntu/ataraxia/server/ataraxia.db';
+const HERE = dirname(fileURLToPath(import.meta.url));
+const DB_FILE = process.env.ATARAXIA_DB_FILE || join(HERE, '..', 'ataraxia.db');
 const TEST_ADDR = '0x1111111111111111111111111111111111111111';
 const TEST_TX = '0x' + 'cd'.repeat(32);
 const UNLOCKED = 'helixhdna';
