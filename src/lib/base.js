@@ -1,9 +1,10 @@
 // Base wallet helpers — SIWE sign-in message + USDC payment, both driven through
 // the AppKit-owned wagmi config (so Builder Code attribution applies and
 // smart-wallet / Base Account connectors work).
-import { getAccount, switchChain, signMessage, writeContract, waitForTransactionReceipt, connect } from '@wagmi/core';
+import { getAccount, switchChain, signMessage, sendTransaction, waitForTransactionReceipt, connect } from '@wagmi/core';
 import { injected } from 'wagmi/connectors';
-import { wagmiConfig } from '../components/WalletModal';
+import { encodeFunctionData, concat } from 'viem';
+import { wagmiConfig, BUILDER_DATA_SUFFIX } from '../components/WalletModal';
 
 export const BASE_CHAIN_ID = 8453;
 export const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
@@ -76,21 +77,34 @@ export async function signSiwe(message) {
   return signMessage(wagmiConfig, { message, account: acc.address });
 }
 
-/** Send an ERC-20 USDC transfer on Base and wait for one confirmation. */
+/**
+ * Send an ERC-20 USDC transfer on Base and wait for one confirmation.
+ *
+ * Built by hand rather than with writeContract purely because Base Builder Code
+ * attribution (ERC-8021) is a *data suffix*: viem supports `dataSuffix` but wagmi
+ * v3 does not forward it, so we append the attribution bytes to the calldata
+ * ourselves. Trailing bytes after a well-formed `transfer` call are ignored by
+ * the token contract, and Base's indexer reads them to credit this app.
+ */
 export async function payUsdc({ to, amountAtomic }) {
   await ensureBaseChain();
   const acc = getAccount(wagmiConfig);
   if (!acc.address) throw new Error('No wallet connected');
-  const hash = await writeContract(wagmiConfig, {
-    address: USDC_BASE,
+  const calldata = encodeFunctionData({
     abi: ERC20_TRANSFER_ABI,
     functionName: 'transfer',
     args: [to, BigInt(amountAtomic)],
+  });
+  const data = BUILDER_DATA_SUFFIX ? concat([calldata, BUILDER_DATA_SUFFIX]) : calldata;
+  const hash = await sendTransaction(wagmiConfig, {
+    to: USDC_BASE,
+    data,
+    value: 0n,
     chainId: BASE_CHAIN_ID,
     account: acc.address,
   });
   const receipt = await waitForTransactionReceipt(wagmiConfig, { hash, confirmations: 1, timeout: 120_000 });
-  return { hash, receipt };
+  return { hash, receipt, attributed: Boolean(BUILDER_DATA_SUFFIX) };
 }
 
 export const basescanTx = (hash) => `https://basescan.org/tx/${hash}`;

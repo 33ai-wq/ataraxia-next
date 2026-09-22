@@ -21,6 +21,10 @@ if (BUILDER_CODE) {
   }
 }
 export const BUILDER_CODE_ACTIVE = Boolean(DATA_SUFFIX);
+// wagmi v3 ignores a `dataSuffix` config option (only viem understands it), so the
+// suffix is appended to the calldata by hand in src/lib/base.js. Kept exported here
+// because this is where the Builder Code is parsed.
+export const BUILDER_DATA_SUFFIX = DATA_SUFFIX;
 
 // Local wallet logos (served from public/wallets/)
 const WALLET_ICONS = {
