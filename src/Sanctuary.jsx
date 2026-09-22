@@ -6,7 +6,7 @@ const PATTERNS = {
   coherent: { name: 'Coherent', phases: [5500, 0, 5500, 0], labels: ['Inhale', '', 'Exhale', ''] },
 };
 
-function Sanctuary({ wallet, onExit, onDisconnect, onGuide, showToast }) {
+function Sanctuary({ wallet }) {
   const [breathPattern, setBreathPattern] = useState('box');
   const [breathPhase, setBreathPhase] = useState(0);
   const [activeLabel, setActiveLabel] = useState('Inhale');
@@ -121,45 +121,6 @@ function Sanctuary({ wallet, onExit, onDisconnect, onGuide, showToast }) {
 
   return (
     <div className="flex flex-col min-h-screen">
-      {/* Minimal Header */}
-      <header className="sticky top-0 z-40 backdrop-blur-xl bg-bg/80 border-b border-border/50">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-          <button onClick={onExit} className="flex items-center gap-3 p-0 bg-transparent border-0">
-            <img src="/logo.png" alt="Ataraxia" className="w-9 h-9 drop-shadow-[0_0_15px_rgba(0,212,170,0.4)] flex-shrink-0" />
-            <div className="hidden sm:block">
-              <div className="font-heading font-bold text-lg tracking-tight bg-gradient-to-r from-fg via-accent to-fg bg-clip-text text-transparent leading-none">ATARAXIA</div>
-              <div className="text-[11px] text-fg-muted leading-tight">Breathing Sanctuary</div>
-            </div>
-          </button>
-
-          <div className="flex items-center gap-3">
-            {/* Wallet status */}
-            {wallet && (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded-full">
-                <span className="w-2 h-2 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent-glow)]" />
-                <span className="text-xs font-mono text-fg-muted">{wallet.chain === 'base' ? 'Base' : 'Solana'}</span>
-                <span className="text-xs font-mono">{formatAddress(wallet.address)}</span>
-              </div>
-            )}
-            
-            <button 
-              onClick={onGuide}
-              className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-fg-muted hover:border-accent hover:text-accent transition-colors"
-              aria-label="Open breathing guide"
-            >
-              📖
-            </button>
-            
-            <button 
-              onClick={onDisconnect}
-              className="w-9 h-9 rounded-full bg-card border border-border flex items-center justify-center text-fg-muted hover:border-danger hover:text-danger transition-colors"
-              aria-label="Disconnect wallet"
-            >
-              🔌
-            </button>
-          </div>
-        </div>
-      </header>
 
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-8 relative overflow-hidden">
         {/* Ambient glow background */}
@@ -283,25 +244,6 @@ function Sanctuary({ wallet, onExit, onDisconnect, onGuide, showToast }) {
         </div>
       </main>
 
-      {/* Guide Modal */}
-      {guideOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-bg/95 backdrop-blur-xl">
-          <div className="bg-card border border-border rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <Guide 
-              wallet={wallet} 
-              onBack={() => setGuideOpen(false)} 
-              onEnter={onGuide} 
-              showToast={showToast} 
-            />
-          </div>
-        </div>
-      )}
-
-      <footer className="py-4 px-4 border-t border-border/50">
-        <p className="text-center text-xs text-fg-muted">
-          ATARAXIA • <a href="https://xhagents.xyz" target="_blank" rel="noopener noreferrer" className="hover:text-accent">xhagents.xyz</a> • Free • Wallet-gated
-        </p>
-      </footer>
     </div>
   );
 }

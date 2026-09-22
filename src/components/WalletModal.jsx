@@ -3,10 +3,24 @@ import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { SolanaAdapter } from '@reown/appkit-adapter-solana';
 import { base, mainnet, solana } from '@reown/appkit/networks';
+import { Attribution } from 'ox/erc8021';
 import QRCode from 'qrcode';
 
 // Reown project ID for WalletConnect
 const REOWN_PROJECT_ID = '886f8719c01b034b65dad40b625434a8';
+
+// Base Builder Code (Base.dev) — ERC-8021 attribution. Set at build time with
+// VITE_BUILDER_CODE; when empty the app simply sends unattributed transactions.
+const BUILDER_CODE = (import.meta.env?.VITE_BUILDER_CODE || '').trim();
+let DATA_SUFFIX = null;
+if (BUILDER_CODE) {
+  try {
+    DATA_SUFFIX = Attribution.toDataSuffix({ codes: [BUILDER_CODE] });
+  } catch (e) {
+    console.error('[Ataraxia] bad builder code, attribution disabled:', e);
+  }
+}
+export const BUILDER_CODE_ACTIVE = Boolean(DATA_SUFFIX);
 
 // Local wallet logos (served from public/wallets/)
 const WALLET_ICONS = {
@@ -29,12 +43,19 @@ const metadata = {
   icons: ['/logo.png'],
 };
 
-// Adapters — one per namespace
+// Adapters — one per namespace. `dataSuffix` is forwarded by WagmiAdapter into
+// wagmi's createConfig, so every transaction sent through wagmi carries the
+// ERC-8021 attribution tag automatically.
 const wagmiAdapter = new WagmiAdapter({
   networks: [base, mainnet],
   projectId: REOWN_PROJECT_ID,
   ssr: true,
+  ...(DATA_SUFFIX ? { dataSuffix: DATA_SUFFIX } : {}),
 });
+
+// Exposed so feature code (Cinema payments, SIWE) can use @wagmi/core actions
+// on exactly the same wagmi config that AppKit drives.
+export const wagmiConfig = wagmiAdapter.wagmiConfig;
 
 const solanaAdapter = new SolanaAdapter();
 

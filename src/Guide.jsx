@@ -24,103 +24,98 @@ function Step({ n, title, children }) {
   );
 }
 
-export default function Guide({ wallet, onBack, onEnter, showToast }) {
+export default function Guide({ wallet, onBack, onEnter, onCinema }) {
   const addr = wallet?.address ? wallet.address.slice(0, 6) + '...' + wallet.address.slice(-4) : null;
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="text-center py-4">
         <p className="text-4xl mb-3">📖</p>
-        <h2 className="font-heading text-3xl md:text-4xl font-bold tracking-tight mb-3">How to Play</h2>
+        <h2 className="font-heading text-3xl md:text-4xl font-bold tracking-tight mb-3">How Ataraxia works</h2>
         <p className="text-fg-muted max-w-xl mx-auto">
-          Ataraxia is a calm game: breathe, blend sounds, draw in sand, and level up your stillness. Free, private — all progress stays on your device.
+          Ataraxia is a quiet room, not a game. No levels, no points, no streaks, no token — nothing to grind and nothing to lose.
+          Every part of it is either free calm, or a film you choose to buy once.
         </p>
       </div>
 
-      <Section icon="🔗" title="1. Connect Wallet" tag="Gateway">
+      <Section icon="🔗" title="1. Connect a wallet" tag="Your only key">
         <div className="space-y-4">
-          <Step n="1" title="Tap Enter Sanctuary / Connect Wallet">
-            <p>A wallet modal opens with two networks: <b className="text-fg">EVM — Base Chain</b> <span className="text-fg-muted">(blue)</span> and <b className="text-fg">Solana</b> <span className="text-fg-muted">(purple)</span>. Pick one.</p>
+          <Step n="1" title="Any Base wallet, or scan the QR">
+            MetaMask, Coinbase Wallet, Base Account, or any WalletConnect-compatible wallet. No sign-up, no email.
           </Step>
-          <Step n="2" title="Browser wallet (easiest)">
-            <p>Tap a wallet card (MetaMask, Phantom, etc.). Your browser asks to <b className="text-fg">Approve / Connect</b> — confirm. A green dot <span className="text-accent">●</span> means the wallet is detected.</p>
+          <Step n="2" title="The wallet is the account">
+            Your address identifies what you own; nothing else about you is stored. Disconnect any time with the 🔌 button.
           </Step>
-          <Step n="3" title="Phone wallet (Scan QR / Mobile)">
-            <p>Tap <b className="text-fg">WalletConnect</b> → QR panel appears. <b className="text-fg">Scan the QR</b> with your phone wallet, or tap a wallet in the list — the app opens and asks for approval. You enter Sanctuary instantly after approval.</p>
+          <Step n="3" title="Only ever a signature, never a seed phrase">
+            Ataraxia never asks for a recovery phrase, and no funds move unless you approve a transfer in your own wallet.
           </Step>
-          <Step n="4" title="Nothing happens?">
-            <p>Check: (a) wallet extension installed & unlocked, (b) for QR — phone online, (c) tap <b className="text-fg">↻ New link</b> if QR expired, or <b className="text-fg">📋 Copy link</b> and paste in your phone wallet.</p>
-          </Step>
-          <p className="text-xs border-t border-border/50 pt-3">🔒 Ataraxia never asks for your seed phrase. Connecting only proves address ownership — no fee, no transaction.</p>
         </div>
       </Section>
 
-      <Section icon="🫁" title="2. Breathing Guide" tag="+10 XP / cycle">
+      <Section icon="🫁" title="2. Breathe" tag="Free, forever">
         <div className="space-y-4">
-          <Step n="1" title="Follow the circle">
-            <p>Circle <b className="text-fg">expands = inhale</b>, <b className="text-fg">shrinks = exhale</b>, <b className="text-fg">still = hold</b>. Labels Inhale / Hold / Exhale light up.</p>
+          <Step n="1" title="Pick a pattern">
+            Box (4-4-6-2), 4-7-8, or Coherent (5.5-5.5). The circle expands as you inhale, holds, then shrinks as you exhale.
           </Step>
-          <Step n="2" title="Pick a pattern">
-            <p><b className="text-fg">Box</b> (4-4-6-2, balanced) · <b className="text-fg">4-7-8</b> (deep relaxation, Dr. Weil) · <b className="text-fg">Coherent</b> (5.5-5.5, optimal heart rhythm). Switch anytime.</p>
+          <Step n="2" title="Follow the labels">
+            Inhale / Hold / Exhale light up as the phase changes. Tap the core to restart, or pause whenever you like.
           </Step>
-          <Step n="3" title="Tap core to restart">
-            <p>Tap the center circle to restart the cycle. Every <b className="text-fg">full cycle = +10 XP</b> and +1 breath in Journey.</p>
+          <Step n="3" title="Nothing is counted">
+            No score, no progress bar, no reward for minutes spent. Leaving early is a perfectly good way to use it.
           </Step>
         </div>
       </Section>
 
-      <Section icon="🎧" title="3. Ambient Soundscape" tag="Sound mixer">
+      <Section icon="🎬" title="3. Cinema" tag="0.10 USDC per film">
         <div className="space-y-4">
-          <Step n="1" title="Turn on layers">
-            <p>Hit play on <b className="text-fg">Rain, Wind, Singing Bowl,</b> or <b className="text-fg">Low Drone</b>. Sound is generated live via Web Audio — no files, no loading.</p>
+          <Step n="1" title="Preview first, free">
+            Every film shows a 5-second loop immediately, and that preview stays free forever.
           </Step>
-          <Step n="2" title="Blend the mix">
-            <p>Use each slider to blend (e.g. heavy rain + thin drone). Turn on <b className="text-fg">2 sounds together</b> to unlock <b className="text-fg">🎧 Sound Weaver</b>.</p>
+          <Step n="2" title="Unlock the 109-second version">
+            The full film is the same animation stretched 21× longer for slow viewing. One transfer of 0.10 USDC on Base unlocks it
+            for that wallet, on any device, permanently.
+          </Step>
+          <Step n="3" title="What actually happens when you pay">
+            (a) Press Unlock. (b) Your wallet sends one plain USDC transfer on Base — you approve it. (c) Our server reads the receipt on
+            Base and checks that it came from your wallet, to the Ataraxia treasury, in the right token and amount. (d) Only then does
+            the full film stream to you.
+          </Step>
+          <Step n="4" title="Sign in (free) to restore your unlocks">
+            Signing one message proves the wallet is yours. It costs nothing and sends no transaction. That is how the page knows what
+            you already own after a refresh, or on another device.
           </Step>
         </div>
       </Section>
 
-      <Section icon="🎨" title="4. Zen Garden" tag="+XP sand">
-        <div className="space-y-4">
-          <Step n="1" title="Draw with finger / mouse">
-            <p>Drag on the sand canvas. Tools: <b className="text-fg">🌾 Rake</b> (wide), <b className="text-fg">⭕ Circle</b>, <b className="text-fg">⬤ Dot</b>, <b className="text-fg">🗑️ Clear</b> (tap once).</p>
-          </Step>
-          <Step n="2" title="Every grain counts">
-            <p>Every <b className="text-fg">50 grains = +2 XP</b>. Scatter 1,000 to unlock <b className="text-fg">🎨 Zen Artist</b>.</p>
-          </Step>
-        </div>
+      <Section icon="🔒" title="4. Privacy & safety" tag="No tracking">
+        <ul className="list-disc pl-5 space-y-2">
+          <li>No analytics. The only cookie is the one that holds your sign-in.</li>
+          <li>The 109-second masters are not publicly hosted — they are streamed only to wallets recorded as paid.</li>
+          <li>Payment goes straight to the treasury wallet as a normal on-chain transfer. Ataraxia never holds your funds.</li>
+          <li>If a payment cannot be verified, nothing unlocks: the app fails closed instead of guessing.</li>
+        </ul>
       </Section>
 
-      <Section icon="🌱" title="5. Journey of Stillness" tag="The game">
-        <div className="space-y-3">
-          <p><b className="text-fg">Levels:</b> 🌱 Seed of Calm (0) → 🌿 Sprout (100) → 🌳 Still Grove (250) → 🏞️ Mirror Lake (500) → ⛰️ Silent Mountain (1000) → 🌊 Boundless Ocean (2000 XP).</p>
-          <p><b className="text-fg">Streak:</b> open Sanctuary daily to keep a 🔥 streak. Two days in a row unlocks <b className="text-fg">🌅 Returning Soul</b>.</p>
-          <p><b className="text-fg">Intention:</b> write one intention for today (e.g. “breathe before replying”) then hit Set 🧭 — unlocks <b className="text-fg">🧭 Set Sail</b>.</p>
-          <p><b className="text-fg">Achievements:</b> 8 core only — 🫁 First Breath, 🔥 Steady Rhythm (10), 💎 Deep Diver (50), ⏳ Still Water (5min), 🎨 Zen Artist (1000 grains), 🎧 Sound Weaver (2 sounds), 🌅 Returning Soul, 🧭 Set Sail. See Levels page — locked dimmed, calm over grind.</p>
-          <p className="text-xs border-t border-border/50 pt-3">💾 All progress is in localStorage on your device. Change browser / clear data = restart at Seed. No account, no server, no tracking.</p>
-        </div>
+      <Section icon="🛠" title="5. If something looks stuck" tag="Troubleshooting">
+        <ul className="list-disc pl-5 space-y-2">
+          <li><b className="text-fg">Nothing happens on connect:</b> unlock the wallet extension and reload. On mobile use WalletConnect → scan the QR, or open this page inside your wallet's browser.</li>
+          <li><b className="text-fg">Wrong network:</b> the app asks the wallet to switch to Base (chain 8453) automatically.</li>
+          <li><b className="text-fg">Paid but still locked:</b> sign in again so the page re-reads your unlocks — verification is done from the on-chain receipt, never from a browser claim.</li>
+          <li><b className="text-fg">Video does not start:</b> the full film streams only after the unlock is confirmed; on data-saving mobile browsers, tap play once.</li>
+        </ul>
       </Section>
 
-      <Section icon="👤" title="6. Account & Safety" tag="Profile">
-        <div className="space-y-3">
-          <p>Tap your <b className="text-fg">address chip</b> in the header or open <b className="text-fg">Profile</b> to see full address, network, live balances (ETH/USDC or SOL/USDC), upload your avatar, and <b className="text-fg">🔌 Disconnect</b>.</p>
-          <p>Disconnecting clears the WalletConnect session and returns you to Dashboard. Journey progress stays safe on device.</p>
-        </div>
-      </Section>
-
-      <Section icon="🎁" title="7. Rewards" tag="1000 XP = $0.10">
-        <p>Every 1000 XP = $0.10 USDC claimable (see Reward page). Earn XP by breathing, drawing, listening. Claims are queued locally and paid from treasury during beta — no gas needed.</p>
-      </Section>
-
-      <div className="text-center py-4">
-        <button
-          onClick={() => {
-            if (!wallet) { onEnter(); showToast?.('Connect wallet to enter', 'info'); }
-            else onBack();
-          }}
-          className="btn-primary text-lg px-10 py-4"
-        >
-          {wallet ? '← Back to Sanctuary' : '🔗 Connect & Enter Sanctuary'}
+      <div className="flex flex-wrap items-center justify-center gap-3 pb-6">
+        <button onClick={onEnter} className="btn-primary px-8 py-3">
+          <span className="flex items-center gap-2"><span>🫁</span><span>Breathe</span></span>
         </button>
+        <button onClick={onCinema} className="text-sm px-6 py-3 rounded-full border border-border text-fg-muted hover:border-accent hover:text-accent transition-all">
+          🎬 Open Cinema
+        </button>
+        <button onClick={onBack} className="text-sm px-6 py-3 rounded-full border border-border text-fg-muted hover:border-accent hover:text-accent transition-all">
+          ← Back home
+        </button>
+        {addr && <span className="text-xs font-mono text-fg-muted/70">{addr}</span>}
       </div>
     </div>
   );
