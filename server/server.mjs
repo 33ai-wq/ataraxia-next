@@ -19,10 +19,12 @@ import express from 'express';
 import crypto from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, chmodSync, appendFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { createPublicClient, http, isAddress } from 'viem';
+import { createPublicClient, isAddress } from 'viem';
 import { base } from 'viem/chains';
+import { baseTransport } from './rpc.mjs';
 import { verifyUsdcPayment, USDC_BASE, BASE_CHAIN_ID } from './payments.mjs';
 import { CATALOG, catalogById, publicCatalog, PRICE_ATOMIC, USDC_DECIMALS } from './catalog.mjs';
+import { accrualFor, summarise, DEFAULT_SHARE_BPS, formatUsdc } from './rewards.mjs';
 
 const PORT = Number(process.env.ATARAXIA_PORT || 3110);
 const RPC = process.env.ATARAXIA_RPC || 'https://mainnet.base.org';
@@ -36,6 +38,22 @@ const SESSION_TTL_S = 7 * 24 * 3600;
 const COOKIE_NAME = 'ataraxia_sid';
 const SIGN_MARKER = 'Sign in to Ataraxia';
 const MIN_CONFIRMATIONS = Number(process.env.ATARAXIA_MIN_CONFIRMATIONS || 1);
+
+// ---- rewards (25% of verified revenue back to the payers) ----
+// Accounting happens here; money only moves from the rewards wallet through
+// scripts/pay_rewards.mjs, which is dry-run unless Boss's Sentinel ticket is supplied.
+const REWARDS_ADDRESS = process.env.ATARAXIA_REWARDS_ADDRESS || '0x3726570F9F73a7dB7437fEE42C8B4887A59E1dcC';
+const REWARDS_SHARE_BPS = BigInt(process.env.ATARAXIA_REWARDS_SHARE_BPS || DEFAULT_SHARE_BPS.toString());
+const REWARDS_MIN_PAYOUT_ATOMIC = process.env.ATARAXIA_REWARDS_MIN_PAYOUT_ATOMIC || '50000'; // 0.05 USDC
+const REWARDS_POLICY = process.env.ATARAXIA_REWARDS_POLICY || 'rebate'; // rebate | draw
+if (!isAddress(REWARDS_ADDRESS)) {
+  console.error(`[fatal] ATARAXIA_REWARDS_ADDRESS is not a valid address: ${REWARDS_ADDRESS}`);
+  process.exit(1);
+}
+if (REWARDS_SHARE_BPS > 10000n) {
+  console.error('[fatal] ATARAXIA_REWARDS_SHARE_BPS must be <= 10000');
+  process.exit(1);
+}
 
 if (!isAddress(PAY_TO)) {
   console.error(`[fatal] ATARAXIA_PAY_TO is not a valid address: ${PAY_TO}`);
@@ -58,7 +76,8 @@ function loadSecret() {
 const SECRET = loadSecret();
 
 // ---------- viem public client (Base mainnet) ----------
-const client = createPublicClient({ chain: base, transport: http(RPC, { timeout: 15000 }) });
+// ordered failover list (public Base endpoints rate-limit bursts)
+const client = createPublicClient({ chain: base, transport: baseTransport() });
 
 // ---------- sqlite store ----------
 const db = new DatabaseSync(DB_FILE);
@@ -86,6 +105,24 @@ db.exec(`
     PRIMARY KEY (address, video_id)
   );
   CREATE UNIQUE INDEX IF NOT EXISTS unlocks_tx ON unlocks(tx_hash);
+  CREATE TABLE IF NOT EXISTS rewards_ledger (
+    tx_hash            TEXT PRIMARY KEY,
+    address            TEXT NOT NULL,
+    day                TEXT NOT NULL,
+    amount_paid_atomic TEXT NOT NULL,
+    accrued_atomic     TEXT NOT NULL,
+    created_at         INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS rewards_ledger_addr ON rewards_ledger(address);
+  CREATE TABLE IF NOT EXISTS rewards_payouts (
+    id             TEXT PRIMARY KEY,
+    address        TEXT NOT NULL,
+    amount_atomic  TEXT NOT NULL,
+    tx_hash        TEXT UNIQUE,
+    status         TEXT NOT NULL,
+    ticket         TEXT,
+    created_at     INTEGER NOT NULL
+  );
 `);
 
 const q = {
@@ -103,7 +140,47 @@ const q = {
   getUnlock: db.prepare('SELECT * FROM unlocks WHERE address = ? AND video_id = ?'),
   unlockByTx: db.prepare('SELECT * FROM unlocks WHERE tx_hash = ?'),
   listUnlocks: db.prepare('SELECT video_id, tx_hash, amount_atomic, unlocked_at FROM unlocks WHERE address = ? ORDER BY unlocked_at DESC'),
+  // ---- rewards ledger (accrual is derived from this table, no duplicate totals) ----
+  ledgerInsert: db.prepare(
+    'INSERT INTO rewards_ledger (tx_hash,address,day,amount_paid_atomic,accrued_atomic,created_at) VALUES (?,?,?,?,?,?)',
+  ),
+  ledgerByAddress: db.prepare('SELECT * FROM rewards_ledger WHERE address = ? ORDER BY created_at DESC LIMIT 200'),
+  ledgerByDay: db.prepare('SELECT * FROM rewards_ledger WHERE day = ?'),
+  ledgerAll: db.prepare('SELECT * FROM rewards_ledger'),
+  payoutByAddress: db.prepare("SELECT COALESCE(SUM(CAST(amount_atomic AS INTEGER)),0) AS s FROM rewards_payouts WHERE status = 'sent' AND address = ?"),
+  payoutTotal: db.prepare("SELECT COALESCE(SUM(CAST(amount_atomic AS INTEGER)),0) AS s FROM rewards_payouts WHERE status = 'sent'"),
+  payoutsByAddress: db.prepare('SELECT * FROM rewards_payouts WHERE address = ? ORDER BY created_at DESC LIMIT 25'),
 };
+
+const utcDay = (ms = Date.now()) => new Date(ms).toISOString().slice(0, 10);
+
+/**
+ * Credit the payer's share of one verified payment. Idempotent per tx hash:
+ * a replayed verify can never accrue twice.
+ * Returns null when the row already existed.
+ */
+function creditReward({ txHash, address, paidAtomic, at = Date.now() }) {
+  const hash = String(txHash).toLowerCase();
+  const accrued = accrualFor(paidAtomic, REWARDS_SHARE_BPS);
+  if (accrued <= 0n) return null;
+  try {
+    q.ledgerInsert.run(hash, address, utcDay(at), String(paidAtomic), accrued.toString(), at);
+  } catch (e) {
+    if (String(e.message || '').includes('UNIQUE')) return null; // already credited
+    throw e;
+  }
+  return { accrued, day: utcDay(at) };
+}
+
+/** Accrued minus already-sent payouts for one address. */
+function rewardsBalance(address) {
+  const rows = q.ledgerByAddress.all(address);
+  const paid = rows.reduce((s, r) => s + BigInt(r.amount_paid_atomic), 0n);
+  const accrued = rows.reduce((s, r) => s + BigInt(r.accrued_atomic), 0n);
+  const sent = BigInt(q.payoutByAddress.get(address).s);
+  const remaining = accrued > sent ? accrued - sent : 0n;
+  return { rows, paid, accrued, sent, remaining };
+}
 
 // ---------- SIWE session (HMAC, httpOnly cookie) ----------
 const nonces = new Map(); // address(lower) -> { nonce, exp }
@@ -329,6 +406,10 @@ app.post('/api/pay/verify', async (req, res) => {
   }
 
   console.log(`[unlock] ${address} -> ${inv.video_id} (${result.amountAtomic} atomic) tx=${txHash}`);
+  const credited = creditReward({ txHash, address, paidAtomic: result.amountAtomic });
+  if (credited) {
+    console.log(`[rewards] +${credited.accrued} atomic -> ${address} (${credited.day})`);
+  }
   return res.json({
     ok: true,
     videoId: inv.video_id,
@@ -336,6 +417,7 @@ app.post('/api/pay/verify', async (req, res) => {
     amountAtomic: result.amountAtomic,
     blockNumber: result.blockNumber,
     explorer: `https://basescan.org/tx/${txHash}`,
+    rewardAccruedAtomic: credited ? credited.accrued.toString() : '0',
   });
 });
 
@@ -355,6 +437,87 @@ app.get('/api/media/:id', (req, res) => {
   res.setHeader('Cache-Control', 'private, max-age=300');
   res.setHeader('Content-Disposition', 'inline');
   return res.status(200).end();
+});
+
+// 4) rewards: what this wallet has earned back, and how the pool stands today
+app.get('/api/rewards', (req, res) => {
+  const s = authSession(req);
+  if (!s?.address) {
+    return res.json({ authed: false, share: Number(REWARDS_SHARE_BPS) / 10000, policy: REWARDS_POLICY });
+  }
+  const address = s.address;
+  const { rows, paid, accrued, sent, remaining } = rewardsBalance(address);
+  const todayRows = q.ledgerByDay.all(utcDay());
+  const todayPool = todayRows.reduce((sum, r) => sum + BigInt(r.accrued_atomic), 0n);
+  const todayGross = todayRows.reduce((sum, r) => sum + BigInt(r.amount_paid_atomic), 0n);
+  const todayPayers = new Set(todayRows.map((r) => r.address)).size;
+  return res.json({
+    authed: true,
+    address,
+    share: Number(REWARDS_SHARE_BPS) / 10000,
+    shareBps: Number(REWARDS_SHARE_BPS),
+    policy: REWARDS_POLICY,
+    minPayoutAtomic: REWARDS_MIN_PAYOUT_ATOMIC,
+    rewardsAddress: REWARDS_ADDRESS,
+    me: {
+      payments: rows.length,
+      paidAtomic: paid.toString(),
+      accruedAtomic: accrued.toString(),
+      sentAtomic: sent.toString(),
+      remainingAtomic: remaining.toString(),
+      eligible: remaining >= BigInt(REWARDS_MIN_PAYOUT_ATOMIC),
+    },
+    today: {
+      day: utcDay(),
+      grossAtomic: todayGross.toString(),
+      poolAtomic: todayPool.toString(),
+      payers: todayPayers,
+      yourShareAtomic: todayRows
+        .filter((r) => r.address === address)
+        .reduce((sum, r) => sum + BigInt(r.accrued_atomic), 0n)
+        .toString(),
+    },
+    payouts: q.payoutsByAddress.all(address).map((p) => ({
+      amountAtomic: p.amount_atomic,
+      txHash: p.tx_hash,
+      status: p.status,
+      createdAt: p.created_at,
+      explorer: p.tx_hash ? `https://basescan.org/tx/${p.tx_hash}` : null,
+    })),
+    ledger: rows.slice(0, 20).map((r) => ({
+      txHash: r.tx_hash,
+      day: r.day,
+      paidAtomic: r.amount_paid_atomic,
+      accruedAtomic: r.accrued_atomic,
+      explorer: `https://basescan.org/tx/${r.tx_hash}`,
+    })),
+  });
+});
+
+// 5) public rewards snapshot (no addresses) — the Cinema/Rewards page shows the pool honestly
+app.get('/api/rewards/public', (_req, res) => {
+  const all = q.ledgerAll.all();
+  const s = summarise(all);
+  const sent = BigInt(q.payoutTotal.get().s);
+  const todayRows = q.ledgerByDay.all(utcDay());
+  return res.json({
+    share: Number(REWARDS_SHARE_BPS) / 10000,
+    policy: REWARDS_POLICY,
+    minPayoutAtomic: REWARDS_MIN_PAYOUT_ATOMIC,
+    rewardsAddress: REWARDS_ADDRESS,
+    today: {
+      day: utcDay(),
+      poolAtomic: todayRows.reduce((x, r) => x + BigInt(r.accrued_atomic), 0n).toString(),
+      payers: new Set(todayRows.map((r) => r.address)).size,
+    },
+    allTime: {
+      poolAtomic: s.pool.toString(),
+      payers: s.payers,
+      paidOutAtomic: sent.toString(),
+      awaitingPayoutAtomic: (s.pool > sent ? s.pool - sent : 0n).toString(),
+      poolUsdc: formatUsdc(s.pool),
+    },
+  });
 });
 
 app.listen(PORT, () => {

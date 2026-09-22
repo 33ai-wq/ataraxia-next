@@ -3,6 +3,7 @@ import { useState } from 'react';
 const NAV = [
   { id: 'breathe', label: 'Breathe', icon: '🫁' },
   { id: 'cinema', label: 'Cinema', icon: '🎬' },
+  { id: 'rewards', label: 'Rewards', icon: '↩︎' },
   { id: 'guide', label: 'How it works', icon: '📖' },
 ];
 

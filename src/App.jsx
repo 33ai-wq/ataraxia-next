@@ -4,6 +4,7 @@ import WalletModal, { disconnectAppKit } from './components/WalletModal';
 import Guide from './Guide';
 import Header from './components/Header';
 import Cinema from './pages/Cinema';
+import Rewards from './pages/Rewards';
 
 const PRICE_LABEL = '0.10 USDC';
 
@@ -145,7 +146,10 @@ function App() {
       return <Sanctuary wallet={wallet} />;
     }
     if (phase === 'cinema') {
-      return <Cinema wallet={wallet} onBack={() => setPhase('home')} showToast={showToast} />;
+      return <Cinema wallet={wallet} onBack={() => setPhase('home')} onRewards={() => setPhase('rewards')} showToast={showToast} />;
+    }
+    if (phase === 'rewards') {
+      return <Rewards onBack={() => setPhase('home')} showToast={showToast} />;
     }
 
     // home
@@ -185,6 +189,7 @@ function App() {
               </div>
               <p className="text-fg-muted text-sm leading-relaxed">
                 Four XH Animations, each stretched 21× to 109 seconds. Preview any of them free-forever, unlock the long version once.
+                25% of what you pay comes back to your wallet automatically.
               </p>
             </button>
           </div>

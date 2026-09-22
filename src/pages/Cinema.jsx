@@ -18,7 +18,7 @@ const PHASE_LABEL = {
   verifying: 'Verifying on Base...',
 };
 
-function Cinema({ wallet, onBack, showToast }) {
+function Cinema({ wallet, onBack, onRewards, showToast }) {
   const [cfg, setCfg] = useState(null);
   const [items, setItems] = useState([]);
   const [session, setSession] = useState({ authed: false, address: null });
@@ -275,6 +275,10 @@ function Cinema({ wallet, onBack, showToast }) {
       <p className="mt-6 text-xs text-fg-muted/60">
         Every unlock is one plain USDC transfer on Base from your own wallet to the Ataraxia treasury — no subscription, no custody,
         no hidden checkout. The 109s masters are streamed only to wallets that paid.
+      </p>
+      <p className="mt-2 text-xs text-fg-muted/60">
+        25% of what you pay is credited back to your wallet automatically.{' '}
+        <button onClick={onRewards} className="text-accent/80 hover:text-accent underline decoration-dotted">See Rewards</button>
       </p>
 
       {player && (

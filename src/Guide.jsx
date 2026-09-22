@@ -87,7 +87,16 @@ export default function Guide({ wallet, onBack, onEnter, onCinema }) {
         </div>
       </Section>
 
-      <Section icon="🔒" title="4. Privacy & safety" tag="No tracking">
+      <Section icon="↩︎" title="4. Rewards" tag="25% back to you">
+        <ul className="list-disc pl-5 space-y-2">
+          <li>A quarter of everything paid in the Cinema is credited back to the wallet that paid it, the moment the payment verifies on-chain.</li>
+          <li>Payouts come from a dedicated rewards wallet, separate from the treasury, in ordinary USDC transfers. You sign nothing and pay no gas.</li>
+          <li>When your balance reaches 0.05 USDC it is sent automatically; below that it keeps accumulating against your address.</li>
+          <li>It is accounting, not a game: no points, no streaks, no token, nothing to grind. The pool can never promise more than the room actually took in.</li>
+        </ul>
+      </Section>
+
+      <Section icon="🔒" title="5. Privacy & safety" tag="No tracking">
         <ul className="list-disc pl-5 space-y-2">
           <li>No analytics. The only cookie is the one that holds your sign-in.</li>
           <li>The 109-second masters are not publicly hosted — they are streamed only to wallets recorded as paid.</li>
@@ -96,7 +105,7 @@ export default function Guide({ wallet, onBack, onEnter, onCinema }) {
         </ul>
       </Section>
 
-      <Section icon="🛠" title="5. If something looks stuck" tag="Troubleshooting">
+      <Section icon="🛠" title="6. If something looks stuck" tag="Troubleshooting">
         <ul className="list-disc pl-5 space-y-2">
           <li><b className="text-fg">Nothing happens on connect:</b> unlock the wallet extension and reload. On mobile use WalletConnect → scan the QR, or open this page inside your wallet's browser.</li>
           <li><b className="text-fg">Wrong network:</b> the app asks the wallet to switch to Base (chain 8453) automatically.</li>

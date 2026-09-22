@@ -26,7 +26,7 @@ page.on('requestfailed', (r) => failed.push(`${r.method()} ${r.resourceType()} $
 await page.goto(BASE, { waitUntil: 'networkidle', timeout: 60_000 });
 check('title', (await page.title()).includes('one quiet room on Base'), await page.title());
 const nav = await page.$$eval('header nav button', (bs) => bs.map((b) => b.innerText.replace(/\s+/g, ' ').trim()));
-check('nav is Breathe/Cinema/How it works', nav.length === 3 && nav[0].includes('Breathe') && nav[1].includes('Cinema') && nav[2].includes('How it works'), nav.join(' | '));
+check('nav is Breathe/Cinema/Rewards/How it works', nav.length === 4 && nav[0].includes('Breathe') && nav[1].includes('Cinema') && nav[2].includes('Rewards') && nav[3].includes('How it works'), nav.join(' | '));
 const cards = await page.$$eval('main button h2', (hs) => hs.map((h) => h.innerText.trim()));
 check('home offers Breathe + Cinema cards', cards.includes('Breathe') && cards.includes('Cinema'), cards.join(' | '));
 check('home shows the 0.10 USDC price', (await page.innerText('main')).includes('0.10 USDC'));
@@ -67,6 +67,20 @@ await page.waitForTimeout(800);
 const guide = await page.innerText('main');
 check('guide explains the paid flow', guide.includes('Cinema') && guide.includes('0.10 USDC'));
 check('guide advertises no grind (no XP/claimable/reward)', !/\+10 XP|1000 XP|claimable|Reward page|achievement unlocked/i.test(guide), guide.match(/[^.]*(XP|claimable|reward)[^.]*\./i)?.[0]?.slice(0,110) || 'clean');
+
+// ---- Rewards page ----
+await page.click('header nav button:has-text("Rewards")');
+await page.waitForSelector('main h1', { timeout: 20_000 });
+await page.waitForTimeout(1800);
+const rwH1 = await page.innerText('main h1');
+const rw = await page.innerText('main');
+check('rewards page renders', /Rewards/i.test(rwH1), rwH1);
+check('rewards explains the 25% share', /25%/.test(rw));
+check("rewards shows today's pool", /TODAY'S POOL/i.test(rw));
+check('rewards states the payout threshold', /0\.05 USDC/.test(rw));
+check('rewards asks a signed-out wallet to sign in', /sign in to see what you have earned back/i.test(rw));
+check('rewards stays non-gamified', /no points, no streaks/i.test(rw) && !/leaderboard|jackpot|spin to win|claim your prize/i.test(rw));
+check('rewards shows the public pool numbers', /ALL-TIME POOL/i.test(rw));
 
 console.log('\nconsole errors:', errors.length ? errors : '(none)');
 console.log('failed requests:', failed.length ? failed : '(none)');

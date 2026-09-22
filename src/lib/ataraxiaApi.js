@@ -23,3 +23,5 @@ export const logout = () => fetch('/api/logout', { method: 'POST', credentials: 
 export const openInvoice = (videoId) => post('/api/pay/invoice', { videoId });
 export const verifyPayment = (invoiceId, txHash) => post('/api/pay/verify', { invoiceId, txHash });
 export const mediaUrl = (videoId) => `/api/media/${encodeURIComponent(videoId)}`;
+export const getRewards = () => fetch('/api/rewards', { credentials: 'same-origin' }).then(json);
+export const getRewardsPublic = () => fetch('/api/rewards/public').then(json);
