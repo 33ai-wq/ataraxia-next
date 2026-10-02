@@ -2,12 +2,29 @@ import { useEffect, useRef, useState } from 'react';
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { SolanaAdapter } from '@reown/appkit-adapter-solana';
-import { DAppConnector } from '@hashgraph/hedera-wallet-connect';
 import { base, mainnet, solana } from '@reown/appkit/networks';
+import { Attribution } from 'ox/erc8021';
 import QRCode from 'qrcode';
 
 // Reown project ID for WalletConnect
-const REOWN_PROJECT_ID = '886f8719c01b034b65dad40b625434a8';
+const REOWN_PROJECT_ID = (import.meta.env?.VITE_REOWN_PROJECT_ID || '886f8719c01b034b65dad40b625434a8').trim();
+
+// Base Builder Code (Base.dev) — ERC-8021 attribution. Set at build time with
+// VITE_BUILDER_CODE; when empty the app simply sends unattributed transactions.
+const BUILDER_CODE = (import.meta.env?.VITE_BUILDER_CODE || '').trim();
+let DATA_SUFFIX = null;
+if (BUILDER_CODE) {
+  try {
+    DATA_SUFFIX = Attribution.toDataSuffix({ codes: [BUILDER_CODE] });
+  } catch (e) {
+    console.error('[Ataraxia] bad builder code, attribution disabled:', e);
+  }
+}
+export const BUILDER_CODE_ACTIVE = Boolean(DATA_SUFFIX);
+// wagmi v3 ignores a `dataSuffix` config option (only viem understands it), so the
+// suffix is appended to the calldata by hand in src/lib/base.js. Kept exported here
+// because this is where the Builder Code is parsed.
+export const BUILDER_DATA_SUFFIX = DATA_SUFFIX;
 
 // Local wallet logos (served from public/wallets/)
 const WALLET_ICONS = {
@@ -30,16 +47,23 @@ const metadata = {
   icons: ['/logo.png'],
 };
 
-// Adapters — one per namespace
+// Adapters — one per namespace. `dataSuffix` is forwarded by WagmiAdapter into
+// wagmi's createConfig, so every transaction sent through wagmi carries the
+// ERC-8021 attribution tag automatically.
 const wagmiAdapter = new WagmiAdapter({
   networks: [base, mainnet],
   projectId: REOWN_PROJECT_ID,
   ssr: true,
+  ...(DATA_SUFFIX ? { dataSuffix: DATA_SUFFIX } : {}),
 });
+
+// Exposed so feature code (Cinema payments, SIWE) can use @wagmi/core actions
+// on exactly the same wagmi config that AppKit drives.
+export const wagmiConfig = wagmiAdapter.wagmiConfig;
 
 const solanaAdapter = new SolanaAdapter();
 
-// Single AppKit instance holding all namespaces (documented keys only).
+// Single AppKit instance holding both namespaces (documented keys only).
 let appKitModal = null;
 
 if (typeof window !== 'undefined' && !appKitModal) {
@@ -104,8 +128,7 @@ const FALLBACK_WC = {
 };
 
 async function fetchWcWallets(chain) {
-  if (chain === 'hedera') return [];
-  const chains = chain === 'base' ? 'eip155:8453' : chain === 'solana' ? SOLANA_CHAIN : 'hedera:testnet';
+  const chains = chain === 'base' ? 'eip155:8453' : SOLANA_CHAIN;
   const r = await fetch(
     `https://explorer-api.walletconnect.com/v3/wallets?projectId=${REOWN_PROJECT_ID}&version=2&chains=${encodeURIComponent(chains)}&entries=12&page=1`
   );
@@ -126,20 +149,23 @@ async function fetchWcWallets(chain) {
 function deepLink(w, uri) {
   const b = (w.universal || w.native || '').replace(/\/$/, '');
   if (!b || !uri) return null;
-  if (/[\?&]uri=/.test(b)) return b + encodeURIComponent(uri);
+  if (/[?&]uri=/.test(b)) return b + encodeURIComponent(uri);
   return b + '/wc?uri=' + encodeURIComponent(uri);
 }
 
-function startPairing(chain) {
-  const provider = appKitModal?.getUniversalProvider?.();
-  if (!provider) return Promise.reject(new Error('WalletConnect belum siap — coba wallet browser langsung'));
-  try { provider.disconnect?.().catch(() => {}); } catch {}
+// AppKit 1.8 exposes getUniversalProvider() as an ASYNC method returning the
+// WalletConnect UniversalProvider. Forgetting the await yields a Promise, and
+// `promise.on(...)` throws "on is not a function" — which is exactly how the QR
+// pairing used to die. Await it, then subscribe to 'display_uri'.
+async function startPairing(chain) {
+  const provider = await appKitModal?.getUniversalProvider?.();
+  if (!provider || typeof provider.on !== 'function') {
+    throw new Error('WalletConnect belum siap — pakai wallet di browser (MetaMask/Coinbase) atau Base Account');
+  }
+  try { provider.disconnect?.().catch?.(() => {}); } catch {}
   const namespaces = chain === 'base'
     ? { eip155: { methods: ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData', 'eth_signTypedData_v4', 'wallet_switchEthereumChain'], chains: ['eip155:8453', 'eip155:1'], events: ['chainChanged', 'accountsChanged'] } }
-    : chain === 'solana'
-      ? { solana: { methods: ['sol_signMessage', 'solana_signMessage', 'sol_signTransaction', 'solana_signTransaction', 'solana_signAndSendTransaction'], chains: [SOLANA_CHAIN], events: [] } }
-      : undefined;
-  if (!namespaces) return Promise.reject(new Error('Unsupported chain for WalletConnect'));
+    : { solana: { methods: ['sol_signMessage', 'solana_signMessage', 'sol_signTransaction', 'solana_signTransaction', 'solana_signAndSendTransaction'], chains: [SOLANA_CHAIN], events: [] } };
   return new Promise((resolve, reject) => {
     const to = setTimeout(() => { cleanup(); reject(new Error('Timeout membuat tautan — coba lagi')); }, 30000);
     const onUri = (u) => { clearTimeout(to); cleanup(); resolve(u); };
@@ -151,8 +177,36 @@ function startPairing(chain) {
   });
 }
 
+// Base Account (Coinbase Smart Wallet, CDP) — passkey login, no QR, no seed.
+// This is the wallet that works inside the Base App's in-app browser and is
+// sponsored by Base when the CDP project allows it.
+async function startBaseAccount() {
+  const { connect, getAccount } = await import('@wagmi/core');
+  const { baseAccount } = await import('wagmi/connectors');
+  // The passkey ceremony happens in Coinbase's own frame; give it room, but do
+  // not leave the button spinning forever if the user dismisses it.
+  const withTimeout = (p, ms, msg) =>
+    Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+  await withTimeout(
+    connect(wagmiConfig, { connector: baseAccount({ appName: 'Ataraxia' }) }),
+    90_000,
+    'Base Account timed out — approve the passkey prompt (or use MetaMask / WalletConnect)',
+  );
+  const acc = getAccount(wagmiConfig);
+  if (!acc.address) throw new Error('Base Account did not return an address');
+  return acc.address;
+}
+
 // Direct (injected) wallet detection
 const EVM_WALLETS = [
+  {
+    id: 'baseaccount',
+    name: 'Base Account',
+    subtitle: 'Passkey · CDP',
+    icon: WALLET_ICONS.coinbase,
+    color: '#0052FF',
+    detect: () => true, // passkey smart wallet: works in any browser, no extension
+  },
   {
     id: 'metamask',
     name: 'MetaMask',
@@ -336,6 +390,11 @@ export default function WalletModal({ isOpen, onClose, onConnectEVM, onConnectSo
         await openWcPanel('base');
         return;
       }
+      if (id === 'baseaccount') {
+        const address = await startBaseAccount();
+        onAppKitAccount?.({ address, chain: 'base', type: 'baseaccount' });
+        return;
+      }
       await onConnectEVM(id);
     } catch (e) {
       console.error('[Ataraxia] EVM connect error:', e);
@@ -360,84 +419,6 @@ export default function WalletModal({ isOpen, onClose, onConnectEVM, onConnectSo
       setIsConnecting(null);
     }
   };
-
-  const handleHedera = async (id) => {
-    setIsConnecting(id);
-    try {
-      if (id === 'walletconnect') {
-        await openHederaWc();
-        return;
-      }
-      if (id === 'hashpack') {
-        await connectHashPack();
-        return;
-      }
-    } catch (e) {
-      console.error('[Ataraxia] Hedera connect error:', e);
-      showToast?.(e.message || 'Connection failed', 'error');
-    } finally {
-      setIsConnecting(null);
-    }
-  };
-
-  // Hedera WalletConnect via DAppConnector (separate from AppKit)
-  let hederaConnector = null;
-  if (typeof window !== 'undefined' && !hederaConnector) {
-    try {
-      hederaConnector = new DAppConnector({
-        network: 'testnet',
-        projectId: REOWN_PROJECT_ID,
-        metadata: {
-          name: 'Ataraxia',
-          description: 'A wallet-gated sanctuary for calm.',
-          url: window.location.origin,
-          icons: ['/logo.png'],
-        },
-      });
-    } catch (e) {
-      console.error('[Ataraxia] Hedera DAppConnector init failed:', e);
-    }
-  }
-
-  async function openHederaWc() {
-    if (!hederaConnector) {
-      throw new Error('Hedera WalletConnect not available');
-    }
-    try {
-      await hederaConnector.openModal();
-      // DAppConnector fires events, subscribe to account changes
-      hederaConnector.on('accountChanged', (account) => {
-        if (account) {
-          onAppKitAccount({ address: account, chain: 'hedera', type: 'walletconnect' });
-        }
-      });
-    } catch (e) {
-      console.error('[Ataraxia] Hedera WC open failed:', e);
-      throw e;
-    }
-  }
-
-  async function connectHashPack() {
-    // HashPack injects window.hashpack or uses standard EIP-6963
-    if (typeof window === 'undefined') throw new Error('No window');
-    
-    // Try HashPack extension
-    const provider = window.hashpack || window.ethereum?.isHashpack ? window.ethereum : null;
-    if (!provider) {
-      throw new Error('HashPack not installed. Install from hashpack.app or use WalletConnect.');
-    }
-    
-    try {
-      const accounts = await provider.request({ method: 'eth_requestAccounts' });
-      if (accounts?.length) {
-        // HashPack on Hedera uses EIP-6963, address is EVM format
-        onAppKitAccount({ address: accounts[0], chain: 'hedera', type: 'hashpack' });
-      }
-    } catch (e) {
-      console.error('[Ataraxia] HashPack connect error:', e);
-      throw e;
-    }
-  }
 
   const renderWalletBtn = (w, onClick, connected, connecting) => (
     <button
@@ -564,16 +545,7 @@ export default function WalletModal({ isOpen, onClose, onConnectEVM, onConnectSo
             const cls = 'flex items-center gap-3 p-2.5 rounded-xl border bg-bg border-border text-center transition-all duration-200 hover:-translate-y-0.5 ' +
               (href ? 'hover:border-accent/50 hover:shadow-[0_8px_24px_rgba(0,212,170,0.15)]' : 'opacity-60');
             return href ? (
-              <a
-                key={w.name}
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={cls}
-                onClick={() => showToast?.('Kamu akan diarahkan ke app wallet — lanjut pakai Ataraxia dari situ ya, itu normal 🙂', 'info')}
-              >
-                {inner}
-              </a>
+              <a key={w.name} href={href} target="_blank" rel="noopener noreferrer" className={cls}>{inner}</a>
             ) : (
               <div key={w.name} className={cls}>{inner}</div>
             );
@@ -654,47 +626,6 @@ export default function WalletModal({ isOpen, onClose, onConnectEVM, onConnectSo
                 isConnecting === w.id,
               ))}
               {wcBtn(handleSolana, isConnecting === 'walletconnect', '#9945FF')}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-border/50" />
-            <span className="text-[10px] tracking-widest uppercase text-fg-muted/60">or</span>
-            <div className="flex-1 h-px bg-border/50" />
-          </div>
-
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-2 h-2 rounded-full bg-[#8b00ff] animate-pulse" />
-              <h3 className="font-heading text-xs font-semibold tracking-widest uppercase text-fg-muted">Hedera Testnet</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => handleHedera('hashpack')}
-                disabled={isConnecting === 'hashpack'}
-                className="group relative flex flex-col items-center gap-2 p-4 rounded-2xl border text-center transition-all duration-200
-                  bg-bg border-border hover:border-[#8b00ff]/50 hover:bg-bg-elevated hover:shadow-[0_8px_24px_rgba(139,0,255,0.15)] hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-wait p-0"
-              >
-                <WalletIcon src={WALLET_ICONS.walletconnect} color="#8b00ff" />
-                <div>
-                  <div className="font-semibold text-sm leading-tight">HashPack</div>
-                  <div className="text-[11px] text-fg-muted leading-tight">Browser Extension / Mobile</div>
-                </div>
-                {isConnecting === 'hashpack' && <span className="absolute top-2 right-2 w-4 h-4 border-2 border-[#8b00ff] border-t-transparent rounded-full animate-spin" />}
-              </button>
-              <button
-                onClick={() => handleHedera('walletconnect')}
-                disabled={isConnecting === 'walletconnect'}
-                className="group relative flex flex-col items-center gap-2 p-4 rounded-2xl border text-center transition-all duration-200
-                  bg-bg border-border hover:border-[#8b00ff]/50 hover:bg-bg-elevated hover:shadow-[0_8px_24px_rgba(139,0,255,0.15)] hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-wait p-0"
-              >
-                <WalletIcon src={WALLET_ICONS.walletconnect} color="#8b00ff" />
-                <div>
-                  <div className="font-semibold text-sm leading-tight">WalletConnect</div>
-                  <div className="text-[11px] text-fg-muted leading-tight">Scan QR / Mobile</div>
-                </div>
-                {isConnecting === 'walletconnect' && <span className="absolute top-2 right-2 w-4 h-4 border-2 border-[#8b00ff] border-t-transparent rounded-full animate-spin" />}
-              </button>
             </div>
           </div>
         </div>

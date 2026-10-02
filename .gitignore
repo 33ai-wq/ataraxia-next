@@ -23,7 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 
-server/node_modules/
-
-# 20 MB of rendered masters: kept on the server, streamed from outside the web root
-public/animations/
+# backend runtime secrets/data (never commit)
+server/.env
+server/*.db
+server/*.db-wal
+server/*.db-shm
+server/unlocks.log
