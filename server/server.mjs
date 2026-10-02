@@ -17,14 +17,15 @@
 // amount >= price, token = USDC on Base) and then records the unlock.
 import express from 'express';
 import crypto from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, chmodSync, appendFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, chmodSync, appendFileSync, statSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { createPublicClient, isAddress } from 'viem';
 import { base } from 'viem/chains';
 import { baseTransport } from './rpc.mjs';
 import { verifyUsdcPayment, USDC_BASE, BASE_CHAIN_ID } from './payments.mjs';
-import { CATALOG, catalogById, publicCatalog, PRICE_ATOMIC, USDC_DECIMALS } from './catalog.mjs';
+import { CATALOG, catalogById, publicCatalog, publicProducts, productById, PASS_DAYS, PRICE_ATOMIC, USDC_DECIMALS } from './catalog.mjs';
 import { accrualFor, summarise, DEFAULT_SHARE_BPS, formatUsdc } from './rewards.mjs';
+import { applyPurchase, effectiveUnlocked, shapePass } from './grants.mjs';
 
 const PORT = Number(process.env.ATARAXIA_PORT || 3110);
 const RPC = process.env.ATARAXIA_RPC || 'https://mainnet.base.org';
@@ -104,7 +105,20 @@ db.exec(`
     unlocked_at   INTEGER NOT NULL,
     PRIMARY KEY (address, video_id)
   );
-  CREATE UNIQUE INDEX IF NOT EXISTS unlocks_tx ON unlocks(tx_hash);
+  -- one payment may unlock several films at once (the pack), so the tx hash is NOT unique on its own.
+  -- Replay safety lives in the invoice status + the rewards ledger (tx_hash is the primary key there).
+  DROP INDEX IF EXISTS unlocks_tx;
+  CREATE INDEX IF NOT EXISTS unlocks_tx_idx ON unlocks(tx_hash);
+  CREATE TABLE IF NOT EXISTS passes (
+    address       TEXT NOT NULL,
+    product       TEXT NOT NULL,
+    tx_hash       TEXT NOT NULL UNIQUE,
+    amount_atomic TEXT NOT NULL,
+    purchased_at  INTEGER NOT NULL,
+    expires_at    INTEGER NOT NULL,
+    PRIMARY KEY (address, purchased_at)
+  );
+  CREATE INDEX IF NOT EXISTS passes_addr ON passes(address);
   CREATE TABLE IF NOT EXISTS rewards_ledger (
     tx_hash            TEXT PRIMARY KEY,
     address            TEXT NOT NULL,
@@ -150,7 +164,19 @@ const q = {
   payoutByAddress: db.prepare("SELECT COALESCE(SUM(CAST(amount_atomic AS INTEGER)),0) AS s FROM rewards_payouts WHERE status = 'sent' AND address = ?"),
   payoutTotal: db.prepare("SELECT COALESCE(SUM(CAST(amount_atomic AS INTEGER)),0) AS s FROM rewards_payouts WHERE status = 'sent'"),
   payoutsByAddress: db.prepare('SELECT * FROM rewards_payouts WHERE address = ? ORDER BY created_at DESC LIMIT 25'),
+  // ---- passes (season pass) ----
+  insertPass: db.prepare(
+    'INSERT INTO passes (address,product,tx_hash,amount_atomic,purchased_at,expires_at) VALUES (?,?,?,?,?,?)',
+  ),
+  activePass: db.prepare('SELECT * FROM passes WHERE address = ? AND expires_at > ? ORDER BY expires_at DESC LIMIT 1'),
+  passByTx: db.prepare('SELECT * FROM passes WHERE tx_hash = ?'),
+  txUsedBy: db.prepare('SELECT DISTINCT address FROM unlocks WHERE tx_hash = ?'),
 };
+
+/** A pass unlocks everything in the room while it is valid — including films added later. */
+function passStatus(address, at = Date.now()) {
+  return shapePass(q.activePass.get(address, at), at);
+}
 
 const utcDay = (ms = Date.now()) => new Date(ms).toISOString().slice(0, 10);
 
@@ -259,9 +285,46 @@ app.get('/api/config', (_req, res) => res.json({
   payTo: PAY_TO,
   priceAtomic: PRICE_ATOMIC.toString(),
   minConfirmations: MIN_CONFIRMATIONS,
+  passDays: PASS_DAYS,
+  products: publicProducts(),
+  rebate: { shareBps: Number(REWARDS_SHARE_BPS), policy: REWARDS_POLICY,
+            text: `25% of everything paid in this room comes back to the wallets that paid it.` },
 }));
 
 app.get('/api/catalog', (_req, res) => res.json({ items: publicCatalog() }));
+
+// Shop window for machine buyers: which masters exist, their exact bytes and sha256, and the terms.
+// The masters themselves stay behind the paid gate — this route only describes them.
+const agentCatalog = { key: null, items: null };
+app.get('/api/agent-catalog', (_req, res) => {
+  const key = CATALOG.map((c) => c.file).join('|');
+  if (agentCatalog.key !== key) {
+    agentCatalog.key = key;
+    agentCatalog.items = CATALOG.map((c) => {
+      let bytes = null;
+      let sha256 = null;
+      try {
+        const abs = `${MEDIA_DIR}/${c.file}`;
+        bytes = statSync(abs).size;
+        sha256 = crypto.createHash('sha256').update(readFileSync(abs)).digest('hex');
+      } catch { /* size/hash stay null rather than failing the route */ }
+      return {
+        id: c.id, title: c.title, subtitle: c.subtitle, durationSec: c.durationSec,
+        previewSec: c.previewSec, file: c.file, bytes, sha256,
+      };
+    });
+  }
+  res.json({
+    provider: 'XH Agents — Ataraxia',
+    site: 'https://ataraxia.xhagents.xyz',
+    items: agentCatalog.items,
+    licence: {
+      priceAtomic: PRICE_ATOMIC.toString(), humanPrice: `${formatUsdc(PRICE_ATOMIC)} USDC`,
+      chainId: BASE_CHAIN_ID, token: USDC_BASE, payTo: PAY_TO,
+    },
+    how: 'POST https://xhagents.xyz/api/video-license with {"video_id":"<id>"} — x402 settles 0.10 USDC on Base and the response carries a time-limited stream URL (HTTP Range supported).',
+  });
+});
 
 app.get('/api/nonce', (req, res) => {
   const address = String(req.query.address || '').trim().toLowerCase();
@@ -312,11 +375,14 @@ app.get('/api/access', (req, res) => {
   const s = authSession(req);
   if (!s?.address) return res.json({ authed: false, address: null, unlocked: [] });
   const rows = q.listUnlocks.all(s.address);
+  const pass = passStatus(s.address);
   return res.json({
     authed: true,
     address: s.address,
-    unlocked: rows.map((r) => r.video_id),
+    unlocked: effectiveUnlocked({ unlockRows: rows, pass, catalog: CATALOG }),
     items: rows,
+    pass,
+    passCoversAll: Boolean(pass),
   });
 });
 
@@ -326,12 +392,25 @@ app.post('/api/pay/invoice', (req, res) => {
   if (!address) return;
   if (!rateLimit(`inv:${address}`, 20, 60_000)) return res.status(429).json({ error: 'rate_limited' });
 
-  const { videoId } = req.body || {};
-  const item = catalogById(String(videoId || ''));
-  if (!item) return res.status(400).json({ error: 'unknown_video' });
+  const { videoId, productId } = req.body || {};
+  const product = productById(String(productId || 'single'));
+  if (!product) return res.status(400).json({ error: 'unknown_product' });
 
-  if (q.getUnlock.get(address, item.id)) {
-    return res.json({ alreadyUnlocked: true, videoId: item.id });
+  let item = null;
+  if (product.kind === 'single') {
+    item = catalogById(String(videoId || ''));
+    if (!item) return res.status(400).json({ error: 'unknown_video' });
+    if (q.getUnlock.get(address, item.id)) {
+      return res.json({ alreadyUnlocked: true, videoId: item.id });
+    }
+  }
+  if (product.kind === 'pack') {
+    const missing = CATALOG.filter((c) => !q.getUnlock.get(address, c.id));
+    if (!missing.length) return res.json({ alreadyUnlocked: true, videoId: 'pack', videos: CATALOG.length });
+  }
+  if (product.kind === 'pass') {
+    const active = passStatus(address);
+    if (active) return res.json({ alreadyActive: true, product: 'pass', expiresAt: active.expiresAt, daysLeft: active.daysLeft });
   }
 
   const open = Number(q.openInvoiceCount.get(address, Date.now()).n);
@@ -340,16 +419,22 @@ app.post('/api/pay/invoice', (req, res) => {
   const id = crypto.randomUUID();
   const now = Date.now();
   const expiresAt = now + INVOICE_TTL_MS;
-  q.insertInvoice.run(id, address, item.id, item.priceAtomic, PAY_TO, now, expiresAt);
+  const ref = product.kind === 'single' ? item.id : product.id; // what this invoice buys
+  q.insertInvoice.run(id, address, ref, product.priceAtomic, PAY_TO, now, expiresAt);
 
   return res.json({
     invoiceId: id,
-    videoId: item.id,
+    productId: product.id,
+    productTitle: product.title,
+    videoId: product.kind === 'single' ? item.id : null,
+    coversVideos: product.kind === 'pack' ? CATALOG.map((c) => c.id)
+      : product.kind === 'pass' ? `${CATALOG.length} now, plus anything added during the pass`
+        : [item.id],
     chainId: BASE_CHAIN_ID,
     token: USDC_BASE,
     tokenDecimals: USDC_DECIMALS,
     payTo: PAY_TO,
-    amountAtomic: item.priceAtomic,
+    amountAtomic: product.priceAtomic,
     minConfirmations: MIN_CONFIRMATIONS,
     expiresAt,
   });
@@ -366,7 +451,19 @@ app.post('/api/pay/verify', async (req, res) => {
   if (!inv) return res.status(400).json({ error: 'unknown_invoice' });
   if (inv.address !== address) return res.status(403).json({ error: 'invoice_not_yours' });
   if (inv.status === 'paid') {
-    return res.json({ ok: true, alreadyUnlocked: true, videoId: inv.video_id, txHash: inv.tx_hash });
+    // already settled: report what this invoice bought, without granting anything twice
+    const paidProduct = productById(String(inv.video_id));
+    const paidKind = paidProduct ? paidProduct.kind : 'single';
+    return res.json({
+      ok: true,
+      alreadyGranted: true,
+      alreadyUnlocked: paidKind === 'single',
+      productId: paidKind,
+      videoId: paidKind === 'single' ? inv.video_id : null,
+      granted: paidKind === 'pack' ? CATALOG.map((c) => c.id) : [inv.video_id],
+      txHash: inv.tx_hash,
+      pass: paidKind === 'pass' ? passStatus(address) : null,
+    });
   }
   if (Date.now() > Number(inv.expires_at)) return res.status(400).json({ error: 'invoice_expired' });
 
@@ -384,50 +481,64 @@ app.post('/api/pay/verify', async (req, res) => {
     return res.status(pending ? 202 : 400).json({ ok: false, reason: result.reason, confirmations: result.confirmations });
   }
 
-  const existingTx = q.unlockByTx.get(String(txHash).toLowerCase());
-  if (existingTx && !(existingTx.address === address && existingTx.video_id === inv.video_id)) {
+  const txh = String(txHash).toLowerCase();
+  const product = productById(String(inv.video_id));       // 'pack' / 'pass'
+  const kind = product ? product.kind : 'single';           // anything else is a film id = single
+
+  // one payment, one payer: a tx already claimed by another wallet is refused
+  const txOwners = q.txUsedBy.all(txh).map((r) => r.address);
+  const passTx = q.passByTx.get(txh);
+  if ((txOwners.length && !txOwners.includes(address)) || (passTx && passTx.address !== address)) {
     return res.status(409).json({ ok: false, reason: 'tx_already_used' });
   }
 
-  try {
-    q.insertUnlock.run(address, inv.video_id, String(txHash).toLowerCase(), result.amountAtomic, result.blockNumber, Date.now());
-  } catch (e) {
-    if (!String(e.message || '').includes('UNIQUE')) throw e;
-  }
-  q.markInvoice.run(String(txHash).toLowerCase(), 'paid', inv.id);
+  const granted = [];
+  const grantedAt = Date.now();
+  const { expiresAt: passExpiresAt } = applyPurchase({
+    q, catalog: CATALOG, address, kind, ref: String(inv.video_id), txHash: txh,
+    amountAtomic: result.amountAtomic, blockNumber: result.blockNumber, at: grantedAt, passDays: PASS_DAYS,
+  });
+  if (kind === 'pack') for (const c of CATALOG) granted.push(c.id);
+  else granted.push(kind === 'pass' ? 'pass' : String(inv.video_id));
+  q.markInvoice.run(txh, 'paid', inv.id);
 
   try {
     appendFileSync(AUDIT_LOG, JSON.stringify({
-      at: new Date().toISOString(), address, videoId: inv.video_id, txHash,
-      amountAtomic: result.amountAtomic, blockNumber: result.blockNumber,
+      at: new Date().toISOString(), address, videoId: inv.video_id, product: kind,
+      granted, txHash, amountAtomic: result.amountAtomic, blockNumber: result.blockNumber,
     }) + '\n');
   } catch (e) {
     console.error('[audit]', e.message);
   }
 
-  console.log(`[unlock] ${address} -> ${inv.video_id} (${result.amountAtomic} atomic) tx=${txHash}`);
+  console.log(`[unlock] ${address} -> ${kind} (${granted.join(',')}) ${result.amountAtomic} atomic tx=${txHash}`);
   const credited = creditReward({ txHash, address, paidAtomic: result.amountAtomic });
   if (credited) {
     console.log(`[rewards] +${credited.accrued} atomic -> ${address} (${credited.day})`);
   }
   return res.json({
     ok: true,
-    videoId: inv.video_id,
-    txHash: String(txHash).toLowerCase(),
+    productId: kind,
+    granted,
+    videoId: kind === 'single' ? inv.video_id : null,
+    pass: kind === 'pass' ? passStatus(address) : null,
+    txHash: txh,
     amountAtomic: result.amountAtomic,
     blockNumber: result.blockNumber,
-    explorer: `https://basescan.org/tx/${txHash}`,
+    explorer: `https://basescan.org/tx/${txh}`,
     rewardAccruedAtomic: credited ? credited.accrued.toString() : '0',
   });
 });
 
-// 3) gated media: cookie session + recorded unlock, then let nginx stream the file
+// 3) gated media: cookie session + recorded unlock (or a live pass), then let nginx stream the file
 app.get('/api/media/:id', (req, res) => {
   const address = requireSession(req, res);
   if (!address) return;
   const item = catalogById(String(req.params.id || ''));
   if (!item) return res.status(404).json({ error: 'unknown_video' });
-  if (!q.getUnlock.get(address, item.id)) {
+  const unlocked = Boolean(q.getUnlock.get(address, item.id));
+  const pass = unlocked ? null : passStatus(address);
+  if (!unlocked && !pass) {
     return res.status(403).json({ error: 'not_unlocked', videoId: item.id });
   }
   const abs = `${MEDIA_DIR}/${item.file}`;

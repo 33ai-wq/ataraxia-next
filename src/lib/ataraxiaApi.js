@@ -20,7 +20,8 @@ export const getNonce = (address) =>
   fetch(`/api/nonce${address ? `?address=${encodeURIComponent(address)}` : ''}`).then(json);
 export const verifySignature = (body) => post('/api/auth/verify', body);
 export const logout = () => fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }).then(json);
-export const openInvoice = (videoId) => post('/api/pay/invoice', { videoId });
+export const openInvoice = (input) =>
+  post('/api/pay/invoice', typeof input === 'string' ? { videoId: input } : (input || {}));
 export const verifyPayment = (invoiceId, txHash) => post('/api/pay/verify', { invoiceId, txHash });
 export const mediaUrl = (videoId) => `/api/media/${encodeURIComponent(videoId)}`;
 export const getRewards = () => fetch('/api/rewards', { credentials: 'same-origin' }).then(json);

@@ -23,6 +23,7 @@ function Cinema({ wallet, onBack, onRewards, showToast }) {
   const [items, setItems] = useState([]);
   const [session, setSession] = useState({ authed: false, address: null });
   const [unlocked, setUnlocked] = useState(() => new Set());
+  const [pass, setPass] = useState(null);
   const [account, setAccount] = useState(null);
   const [busy, setBusy] = useState({ videoId: null, phase: null });
   const [error, setError] = useState({ videoId: null, message: '' });
@@ -47,6 +48,7 @@ function Cinema({ wallet, onBack, onRewards, showToast }) {
     const [s, a] = await Promise.all([getSession(), getAccess()]);
     setSession({ authed: Boolean(s.authed), address: s.address || null });
     setUnlocked(new Set(Array.isArray(a.unlocked) ? a.unlocked : []));
+    setPass(a.pass || null);
     return { s, a };
   }, []);
 
@@ -98,8 +100,10 @@ function Cinema({ wallet, onBack, onRewards, showToast }) {
     }
   }, [effectiveAddress, refreshAccess, showToast]);
 
-  const unlock = useCallback(async (item) => {
+  const unlock = useCallback(async (item, productId = 'single') => {
     if (!cfg) return;
+    const isSingle = !productId || productId === 'single';
+    const key = isSingle ? item?.id : productId;
     try {
       setError({ videoId: null, message: '' });
       if (!sessionMatches) {
@@ -107,20 +111,27 @@ function Cinema({ wallet, onBack, onRewards, showToast }) {
         const s = await getSession();
         if (!s.authed) throw new Error('Sign-in required before paying');
       }
-      setBusy({ videoId: item.id, phase: 'invoicing' });
-      const inv = await openInvoice(item.id);
-      if (inv.alreadyUnlocked) {
-        setUnlocked((prev) => new Set(prev).add(item.id));
+      setBusy({ videoId: key, phase: 'invoicing' });
+      const inv = await openInvoice(isSingle ? { videoId: item.id } : { productId });
+      if (inv.alreadyUnlocked || inv.alreadyGranted || inv.alreadyActive) {
+        await refreshAccess();
         setBusy({ videoId: null, phase: null });
-        setPlayer(item);
+        if (inv.alreadyActive || inv.productId === 'pass') {
+          const left = inv.pass?.daysLeft ?? inv.daysLeft;
+          showToast(left ? `Season pass already active — ${left} day${left === 1 ? '' : 's'} left` : 'Season pass already active', 'info');
+        } else if (isSingle) {
+          setPlayer(item);
+        } else {
+          showToast('You already own every film in the room', 'info');
+        }
         return;
       }
       if (!inv.invoiceId) throw new Error(inv.error || 'Could not open invoice');
 
-      setBusy({ videoId: item.id, phase: 'paying' });
+      setBusy({ videoId: key, phase: 'paying' });
       const { hash } = await payUsdc({ to: inv.payTo, amountAtomic: inv.amountAtomic });
 
-      setBusy({ videoId: item.id, phase: 'verifying' });
+      setBusy({ videoId: key, phase: 'verifying' });
       let result = null;
       for (let attempt = 0; attempt < 6; attempt += 1) {
         result = await verifyPayment(inv.invoiceId, hash);
@@ -130,14 +141,15 @@ function Cinema({ wallet, onBack, onRewards, showToast }) {
       }
       if (!result?.ok) throw new Error(result?.reason || 'Payment could not be verified');
 
-      setLastTx({ hash: result.txHash || hash, videoId: item.id });
+      setLastTx({ hash: result.txHash || hash, videoId: key });
       await refreshAccess();
-      showToast(`Unlocked ${item.title} — ${fmtUsdc(inv.amountAtomic)} USDC`, 'success');
-      setPlayer(item);
+      const label = isSingle ? item.title : inv.productTitle || productId;
+      showToast(`Unlocked ${label} — ${fmtUsdc(inv.amountAtomic)} USDC`, 'success');
+      if (isSingle) setPlayer(item);
     } catch (e) {
       const raw = e?.shortMessage || e?.message || 'Payment failed';
       const msg = /User rejected|denied/i.test(raw) ? 'Payment cancelled in wallet' : raw;
-      setError({ videoId: item.id, message: msg });
+      setError({ videoId: key, message: msg });
       showToast(msg, 'error');
     } finally {
       setBusy({ videoId: null, phase: null });
@@ -189,6 +201,55 @@ function Cinema({ wallet, onBack, onRewards, showToast }) {
           )}
         </div>
       </div>
+
+      {/* Three ways to pay. Single is per film (button on each card); pack and pass are bought here. */}
+      <section className="mb-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+          <h2 className="font-heading text-lg font-semibold">Choose how you pay</h2>
+          <span className="text-[11px] font-mono text-fg-muted/70">USDC on Base · 25% of it credited back to your wallet</span>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          {(cfg?.products || []).map((p) => {
+            const passActive = p.kind === 'pass' && Boolean(pass);
+            const packOwned = p.kind === 'pack' && items.length > 0 && items.every((it) => unlocked.has(it.id));
+            const isBusy = busy.videoId === p.id;
+            const buyable = p.kind !== 'single' && !packOwned && !passActive;
+            return (
+              <div
+                key={p.id}
+                className={`bg-card border rounded-2xl p-4 flex flex-col gap-2 ${passActive || packOwned ? 'border-accent/60' : 'border-border'}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-heading text-base font-semibold">{p.title}</h3>
+                  <span className="font-mono text-accent text-sm">{fmtUsdc(p.priceAtomic)} USDC</span>
+                </div>
+                <p className="text-sm text-fg-muted">{p.blurb}</p>
+                {p.note && <p className="text-xs text-fg-muted/80">{p.note}</p>}
+                {p.kind === 'single' && (
+                  <span className="mt-auto text-xs text-fg-muted/80">
+                    Pick any film below and press “Unlock full film”.
+                  </span>
+                )}
+                {packOwned && <span className="mt-auto text-xs text-accent">All four already unlocked.</span>}
+                {passActive && (
+                  <span className="mt-auto text-xs text-accent">
+                    Active — {pass.daysLeft} day{pass.daysLeft === 1 ? '' : 's'} left.
+                  </span>
+                )}
+                {buyable && (
+                  <button
+                    onClick={() => unlock(items[0] || null, p.id)}
+                    disabled={Boolean(busy.phase)}
+                    className="btn-primary mt-auto px-4 py-2 text-sm disabled:opacity-60"
+                  >
+                    {isBusy ? PHASE_LABEL[busy.phase] || 'Working...' : `Buy ${p.kind === 'pack' ? 'all four' : 'season pass'}`}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       {error.message && (
         <div className="mb-6 p-4 rounded-2xl border border-danger/40 bg-card text-sm text-danger">{error.message}</div>
@@ -275,6 +336,12 @@ function Cinema({ wallet, onBack, onRewards, showToast }) {
       <p className="mt-6 text-xs text-fg-muted/60">
         Every unlock is one plain USDC transfer on Base from your own wallet to the Ataraxia treasury — no subscription, no custody,
         no hidden checkout. The 109s masters are streamed only to wallets that paid.
+      </p>
+      <p className="mt-2 text-xs text-fg-muted/60">
+        One film unlocks that film for good. <span className="text-fg-muted">All four films</span> unlocks the whole room for good
+        (0.30 instead of 0.40). <span className="text-fg-muted">The season pass</span> covers everything for 30 days, so any film
+        added while your pass runs is included — that is the one to pick if you plan to come back. A live pass also works on films
+        you never bought individually.
       </p>
       <p className="mt-2 text-xs text-fg-muted/60">
         25% of what you pay is credited back to your wallet automatically.{' '}
