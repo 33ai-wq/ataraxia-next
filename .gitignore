@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 
 server/node_modules/
+
+# 20 MB of rendered masters: kept on the server, streamed from outside the web root
+public/animations/
